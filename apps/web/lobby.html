@@ -65,7 +65,7 @@
       const scheme = location.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(`${scheme}//${location.host}/ws`);
       socket.addEventListener("open", () => {
-        status.textContent = "Connected. The live server does not route lobby messages until the core adapter lands.";
+        status.textContent = "Connected.";
         const saved = client.load(sessionStorage);
         const room = params.get("room");
         if (saved && (!room || saved.roomId === room.trim().toUpperCase())) {

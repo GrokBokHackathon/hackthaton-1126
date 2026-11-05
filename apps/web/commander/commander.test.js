@@ -166,6 +166,38 @@ test("opening camera shows the team base and a resize keeps the pan", () => {
   assert.equal(camera.focusY, pannedY);
 });
 
+test("a full pan reaches both bases inside the visible arena", () => {
+  const map = {
+    width: 64,
+    height: 40,
+    bases: { red: { x: 2, y: 2 }, bot: { x: 61, y: 37 } },
+  };
+  const bounds = boundsFromMap(map);
+  const arenas = [
+    [1040, 813],
+    [390, 480],
+  ];
+  for (const [width, height] of arenas) {
+    let right = createCameraState({ viewportWidth: width, viewportHeight: height, bounds, focusX: 0, focusY: 0 });
+    right = updateCamera(right, { panScreenX: -1e6, panScreenY: -1e6 }, 0, bounds);
+    const bot = worldToScreen(right, bounds, 61 * TILE_SIZE, 37 * TILE_SIZE);
+    const rightEdge = worldToScreen(right, bounds, 64 * TILE_SIZE, 20 * TILE_SIZE);
+    assert.ok(bot.x >= 0 && bot.x <= width, `bot x ${bot.x} in ${width}`);
+    assert.ok(bot.y >= 0 && bot.y <= height, `bot y ${bot.y} in ${height}`);
+    assert.ok(Math.abs(rightEdge.x - width) < 1.5);
+
+    let left = createCameraState({ viewportWidth: width, viewportHeight: height, bounds, focusX: 1e6, focusY: 1e6 });
+    left = updateCamera(left, { panScreenX: 1e6, panScreenY: 1e6 }, 0, bounds);
+    const red = worldToScreen(left, bounds, 2 * TILE_SIZE, 2 * TILE_SIZE);
+    const leftEdge = worldToScreen(left, bounds, 0, 2 * TILE_SIZE);
+    assert.ok(red.x >= 0 && red.x <= width, `red x ${red.x} in ${width}`);
+    assert.ok(red.y >= 0 && red.y <= height, `red y ${red.y} in ${height}`);
+    assert.ok(Math.abs(leftEdge.x) < 1.5);
+  }
+  const html = fs.readFileSync(new URL("../game.html", import.meta.url), "utf8");
+  assert.match(html, /#command-shell > \.cp-arena-slot\s*\{[^}]*position:\s*relative/s);
+});
+
 test("updateCamera pans in screen pixels, clamps, ignores dt and input.zoom", () => {
   const initial = createCameraState({ viewportWidth: 390, viewportHeight: 844, bounds: BOUNDS });
   const frozenState = Object.freeze({ ...initial });

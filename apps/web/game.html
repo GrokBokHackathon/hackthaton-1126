@@ -70,6 +70,13 @@
         right: 0;
         bottom: 0;
       }
+      /* The canvas fills the arena only. A shell-sized canvas hides the map edge under the dock. */
+      #command-shell > .cp-arena-slot {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
       #container {
         position: absolute;
         inset: 0;
