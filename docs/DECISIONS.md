@@ -1,73 +1,67 @@
 # Decision log
 
-Accepted product and architecture choices for Enemy Trainer. This repo is the source of truth. Keep new entries short.
+Current choices for the hackathon. This repo is the source of truth. Keep new entries short.
 
-## 1. Game concept — Enemy Trainer
+## 1. Game — realtime Capture the Flag
 
-Opponents run a classic behavior tree stored as JSON ("Trener wroga"). After each round an agent reads the match log (where the player stood, what killed them, when they fled) and rewrites the tree. The player sees the tree diff and a short humorous justification. Example: camping in a corner becomes a flank.
+The match is Capture the Flag on one shared map. Humans and bots move continuously. It is not turn-based, and it is not a between-round trainer.
 
-## 2. Multi-agent pipeline
+The core demo is that movement: positions and flag state over WebSockets while the match is live.
 
-Three roles, and the demo shows them debating:
+## 2. Who plays
 
-- **Tactician** proposes tree changes from the match log.
-- **Critic** validates the JSON schema and rejects a tree that makes the enemy too strong.
-- **Narrator** writes the player-facing comment.
+**n humans vs m Grok Bots.** Both counts can be more than one. Grok Bots are players in the match.
 
-Proposal, safety, and voice stay separate so a bad edit can be refused before the player sees it.
+This host runs the server and the local client. Humans and bots join through the public tunnel URL. A bot is not a Compose service yet.
 
-## 3. Mutate data, not code, and only between rounds
+## 3. Tone and time
 
-The model rewrites the JSON tree. It does not emit game code. Evolution runs after the round ends.
+Funny, silly, dumb. A party game for drinking with friends. The plot can be thin or stupid.
 
-A data edit is easier to schema-check, diff, and roll back. Doing it between rounds keeps API latency off realtime play.
+Ship a playable slice in about three hours. Cut work that does not put people and bots on the same map.
 
-## 4. Web clients, WebSockets
+## 4. Map
 
-Clients are web apps. Gameplay traffic is WebSocket.
+**2D top-down.** Isometric and low-poly 3D were on the table. Top-down is the fastest for this time box: a flat canvas, no camera rig. Colored shapes, public assets, or generated art are all fine.
 
-## 5. Humans vs Grok Bots
+## 5. Clients
 
-Human players face Grok Bots. Grok Bots are in-game agents and players, not only the between-round editors.
+Web clients. Gameplay traffic is WebSocket. The server broadcasts the shared map. Clients heartbeat and reconnect, because Cloudflare can idle-timeout a socket or restart an edge.
 
-## 6. Tone
+## 6. Stretch — behavior trees
 
-Funny. The Narrator line should be a joke tied to what just happened in the match.
+Not part of the core demo. Between matches, or as a light tweak during a match, an LLM may rewrite a bot's JSON behavior tree. The model edits that data, not game code, so a slow response cannot stall movement.
 
-## 7. Art
+If that stretch is built: a Tactician proposes edits, a Critic checks the schema and that the bot did not become too strong, and a Narrator writes a silly line. A small action set is enough: `chase`, `flank`, `retreat`, `ambush`, `wait`.
 
-2D over 3D, so we can move faster. Pixel art or low-poly. Public assets or generated art. No custom 3D pipeline for the hackathon.
+Voice or text commands that edit an ally tree are later still, and outside the three-hour slice.
 
-## 8. Hosting
+## 7. Hosting
 
-Run the multiplayer stack locally with Docker Compose or Podman, and publish it with a Cloudflare Tunnel on a custom domain.
+Run the stack on this host with Docker Compose or Podman, and publish it with a Cloudflare Tunnel on a custom domain.
 
 Vercel is not used for the game server. Its WebSocket connections are limited to about five minutes.
 
 Tailscale was considered as a backup if the tunnel path is blocked.
 
-Clients must heartbeat and reconnect. Cloudflare can idle-timeout a connection or restart an edge.
+## 8. Cloudflare Tunnel and secrets
 
-## 9. Cloudflare Tunnel and secrets
+The tunnel supports WebSockets. There is no hard documented WebSocket connection limit to design around at this scale.
 
-The tunnel fully supports WebSockets. There is no hard documented WebSocket connection limit we need to design around at this scale.
+The tunnel token is supplied only as `CLOUDFLARE_TUNNEL_TOKEN` from the environment or a secret store. Compose maps it to cloudflared's `TUNNEL_TOKEN`. Never commit secrets, tokens, API keys, credentials, or env values. `.env.example` leaves the variable empty.
 
-The tunnel token is supplied only as `CLOUDFLARE_TUNNEL_TOKEN` from the environment or a secret store. Never commit secrets, tokens, API keys, credentials, or env values.
+In Cloudflare, the public hostname targets `http://server:8080` on the Compose network.
 
-## 10. Repository language
+## 9. Repository language
 
-All repository content is English: docs, commits, issues, and in-repo copy. The on-screen title may still be "Trener wroga".
+All repository content is English: docs, commits, issues, and in-repo copy. On-screen jokes can be silly. They stay in English in this repo.
 
-## 11. Collaboration
+## 10. Collaboration
 
 Shared work between Wiktor and Grześ. Invent features as we go. Commit frequently so the repo stays the handoff.
 
-## 12. Small behavior-tree action set
+## 11. First runnable slice — mock behind the tunnel
 
-The first tree uses only: `chase`, `flank`, `retreat`, `ambush`, `wait`.
+Monorepo: `apps/server` (mock realtime server) and `apps/web` (client stub). `docker-compose.yml` runs the mock, the stub, and `cloudflared`.
 
-A small set keeps the schema, the Critic, and the on-screen diff readable.
-
-## 13. Companion AI (later)
-
-Deferred. Voice or text commands map onto ally behavior-tree edits: the same engine, inverted. The player trains a friend instead of only watching an enemy learn. Not in the first slice.
+The mock answers `GET /health` and echoes `WebSocket /ws`, with heartbeats. That is enough to prove the tunnel. The Capture the Flag match is the next step, not this container.

@@ -1,54 +1,86 @@
-# Enemy Trainer
+# Capture the Flag
 
-**Trener wroga.** Opponents run on a classic behavior tree stored as JSON. After each round, agents read the match log and rewrite that tree. The player sees the diff and a short humorous justification.
+Silly realtime party game. **n humans vs m Grok Bots** on a **2D top-down** map. Everyone moves at once. Grab the flag. The plot can be dumb. Aimed at a playable slice in about three hours, beers included.
 
-This repository is the source of truth for the hackathon. Product and architecture choices are in [docs/DECISIONS.md](docs/DECISIONS.md).
+This repository is the source of truth. Product choices are in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Goals
 
-- Humans play Grok Bots in a realtime web game. Grok Bots are in-game agents and players.
-- The enemy adapts between rounds by mutating a JSON behavior tree, not by rewriting code.
-- Show the agent debate, the tree diff, and a funny line tied to what just happened.
-- Ship a small slice quickly: 2D, five actions, local containers, Cloudflare Tunnel.
+- Realtime Capture the Flag. Humans and bots move continuously on one shared map. Not turns, and not a between-match trainer.
+- Any number of humans against any number of Grok Bots. Bots are players.
+- Funny, silly, dumb. A party game for drinking with friends.
+- 2D top-down, because that is the fastest view to build.
+- Web clients over WebSockets. This host runs the server and publishes it with a Cloudflare Tunnel.
 
 ## Architecture
 
 ```
-Web client  --WebSocket-->  Realtime game server
-                                  |
-                                  +-- Behavior-tree interpreter (during the round)
-                                  |
-                                  +-- POST /evolve (between rounds)
-                                        |
-                                        +-- Tactician  proposes tree edits from the match log
-                                        +-- Critic     checks JSON schema and that the enemy
-                                        |              did not become too strong
-                                        +-- Narrator   writes the player-facing comment
+Humans (web)  --WebSocket-->  Realtime game server
+Grok Bots     --WebSocket-->        |
+                                     +-- shared 2D top-down map
+                                     +-- positions, flag, score
 ```
 
-In a round the server only interprets the current tree, so model latency stays off the gameplay loop. After the round, `/evolve` takes the match log (where the player stood, what killed them, when they fled) and returns a new tree, a diff, and a comment. The demo shows the three agents debating.
+The core demo is movement on that map. The server broadcasts state while the match is live. Model calls are not on the movement path.
 
-First action set: `chase`, `flank`, `retreat`, `ambush`, `wait`.
-
-A later bonus uses the same engine inverted: voice or text commands that edit an ally tree. Not part of the first slice.
+Stretch, only if the match already runs: between matches, or as a light mid-match tweak, an LLM may rewrite a bot's JSON behavior tree (data, not game code). That work is optional. See the decision log.
 
 ## Decisions
 
-See [docs/DECISIONS.md](docs/DECISIONS.md) before changing the pipeline, hosting, art direction, or the tree shape.
+See [docs/DECISIONS.md](docs/DECISIONS.md) before changing the match, the map, or hosting.
+
+## Layout
+
+```
+apps/server          Mock realtime server: GET /health, GET /, WebSocket /ws echo
+apps/web             Static client stub (local only)
+docker-compose.yml   server + web + cloudflared
+.env.example         Empty CLOUDFLARE_TUNNEL_TOKEN=  (copy to .env, do not commit .env)
+docs/DECISIONS.md    Product and architecture choices
+```
+
+The mock only proves HTTP and WebSocket through the tunnel. It does not run a match yet.
 
 ## Local run
 
-The stack is not scaffolded yet. Intended shape:
-
-- Web client and realtime server in one Docker Compose or Podman stack.
-- Public multiplayer through a Cloudflare Tunnel and a custom domain. The game server does not run on Vercel; those WebSocket connections are cut at about five minutes.
-- Client heartbeats and reconnect. Cloudflare can idle-timeout a socket or restart an edge connection.
-- `CLOUDFLARE_TUNNEL_TOKEN` is read from the environment or a secret store. Do not commit it. Do not put tokens, API keys, credentials, or env values in this repo or in an example env file.
+This host runs the stack. Humans and Grok Bots join the same public tunnel URL as players. Bots are not a Compose service yet.
 
 ```bash
-# Compose file is not in the repo yet.
-# Set CLOUDFLARE_TUNNEL_TOKEN in your environment. Never commit the value.
-# docker compose up
+cp .env.example .env
+# Put the tunnel token in .env as CLOUDFLARE_TUNNEL_TOKEN. Never commit .env.
+
+docker compose up --build
+# Podman: podman compose up --build
+```
+
+Compose passes `CLOUDFLARE_TUNNEL_TOKEN` into cloudflared as `TUNNEL_TOKEN`. It is not placed on the process command line. Do not commit `.env`, and do not paste `docker compose config` after the token is set — that printout expands it.
+
+In Cloudflare (Networking → Tunnels → your tunnel → Public hostname):
+
+- Type: HTTP
+- URL: `http://server:8080`
+
+`server` is the Compose service name on the `game` network. Do not point the hostname at `localhost`; that is the tunnel container, not the game server.
+
+Published ports are loopback only:
+
+- Mock server: <http://127.0.0.1:8080/health> and <http://127.0.0.1:8080/> (same-origin echo page)
+- Web stub: <http://127.0.0.1:3000/>
+
+Public check, after the tunnel shows healthy:
+
+- `curl https://<your-hostname>/health`
+- Open `https://<your-hostname>/` and send a WebSocket message. The server echoes it.
+
+The mock sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Both pages reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
+
+Without a token, start only the local apps: `docker compose up --build server web`. `cloudflared` exits until `CLOUDFLARE_TUNNEL_TOKEN` is set.
+
+Server smoke test, no containers:
+
+```bash
+npm ci --prefix apps/server
+npm test --prefix apps/server
 ```
 
 ## Contributing
@@ -59,8 +91,8 @@ The stack is not scaffolded yet. Intended shape:
 
 ## Next steps
 
-1. Scaffold the realtime server, a WebSocket session, and a minimal web client.
-2. Define the behavior-tree JSON schema and an interpreter for the five actions.
-3. Add `POST /evolve` (Tactician, Critic, Narrator) and a demo view of the debate plus the tree diff.
-4. Add Docker Compose or Podman, and a Cloudflare Tunnel service that reads `CLOUDFLARE_TUNNEL_TOKEN` from the environment.
-5. Later: companion AI that maps voice or text onto ally tree edits.
+1. Replace the echo socket with a live match: positions for n humans and m bots, plus flag state, on one 2D map.
+2. Draw that map top-down in the web client and move with the keyboard.
+3. End a match when a side takes the flag. Keep the rules silly and short.
+4. Let a Grok Bot connect through the public tunnel URL as a player.
+5. Stretch: between matches, or a light mid-match tweak, rewrite a bot's JSON behavior tree. Not required for the first playable game.

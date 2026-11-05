@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Capture the Flag mock</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 40rem;
+        padding: 2rem 1.25rem 3rem;
+        line-height: 1.45;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin-bottom: 0.25rem;
+      }
+      p,
+      li {
+        margin-top: 0.4rem;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, "Cascadia Code", monospace;
+      }
+      pre {
+        padding: 0.75rem 1rem;
+        overflow: auto;
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+      }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        margin: 1rem 0;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 0.4rem 0.6rem;
+      }
+      input {
+        flex: 1;
+      }
+      #log {
+        min-height: 8rem;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Capture the Flag mock</h1>
+    <p>
+      This is the realtime server, not the match yet. It answers <code>/health</code>
+      and echoes WebSocket messages on <code>/ws</code>. If you opened this page
+      on your public hostname, the Cloudflare Tunnel is reaching the server.
+      The game is 2D top-down Capture the Flag: n humans and m Grok Bots moving
+      on the same map.
+    </p>
+    <p id="status">Checking health…</p>
+    <pre id="health">(waiting)</pre>
+    <form id="echo-form">
+      <input id="echo-input" name="message" autocomplete="off" placeholder="Say flag" />
+      <button type="submit">Send</button>
+    </form>
+    <pre id="log"></pre>
+    <script>
+      const status = document.querySelector("#status");
+      const health = document.querySelector("#health");
+      const log = document.querySelector("#log");
+      const form = document.querySelector("#echo-form");
+      const input = document.querySelector("#echo-input");
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = proto + "//" + location.host + "/ws";
+      let socket;
+      let attempt = 0;
+
+      function line(text) {
+        log.textContent += text + "\n";
+      }
+
+      async function loadHealth() {
+        const response = await fetch("/health", { cache: "no-store" });
+        const body = await response.json();
+        health.textContent = JSON.stringify(body, null, 2);
+        if (!response.ok || !body.ok) {
+          throw new Error("health check failed");
+        }
+      }
+
+      function connect() {
+        socket = new WebSocket(wsUrl);
+        status.textContent = "Connecting to " + wsUrl;
+        socket.addEventListener("open", () => {
+          attempt = 0;
+          status.textContent = "Connected to " + wsUrl;
+        });
+        socket.addEventListener("message", (event) => {
+          line("< " + event.data);
+        });
+        socket.addEventListener("close", () => {
+          attempt += 1;
+          const wait = Math.min(5000, 500 * attempt);
+          status.textContent = "Disconnected. Reconnecting in " + wait + "ms";
+          setTimeout(connect, wait);
+        });
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const message = input.value;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          line("not connected");
+          return;
+        }
+        socket.send(message);
+        line("> " + message);
+        input.value = "";
+      });
+
+      loadHealth().catch((error) => {
+        health.textContent = String(error);
+      });
+      connect();
+    </script>
+  </body>
+</html>
