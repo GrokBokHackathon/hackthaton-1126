@@ -1,10 +1,31 @@
-import { CONFIG, drawTile, drawPlayer, drawFlag, drawBase } from "./assets.js";
+import { CONFIG, drawBase, drawFlag, drawPlayer, drawTile } from "./assets.js";
+import {
+  boundsFromMap,
+  cameraTransform,
+  createCameraState,
+  mountCameraInput,
+  paintUnitOverlay,
+  renderUnitOverlay,
+  updateCamera,
+  worldToScreen,
+} from "./commander/index.js";
+import { describeFog, drawableFlags, fogLabel, mapPingsFromState, presentationFromUnits, unitsFromState } from "./commander/live-hook.js";
+import { drawFog } from "./fog.js";
+import {
+  atlasPivotForFrame,
+  characterDestRect,
+  characterFrameName,
+  drawLoadedFrame,
+  terrainDestRect,
+  terrainFrameName,
+} from "./commander/supplied-art.js";
+import { spriteLoader } from "./spriteLoader.js";
 
 export class Game {
   constructor(canvasId, serverOrigin) {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext("2d");
-    
+
     this.serverOrigin = serverOrigin;
     this.ws = null;
     this.reconnectAttempt = 0;
@@ -17,50 +38,34 @@ export class Game {
     this.score = { red: 0, bot: 0 };
     this.phase = "waiting";
 
-    this.keys = new Set();
-    this.lastInputDx = 0;
-    this.lastInputDy = 0;
-    
-    // Touch controls
-    this.touchDx = 0;
-    this.touchDy = 0;
-    this.touchActive = false;
+    this.camera = null;
+    this.bounds = null;
+    this.selectedUnitId = null;
+    this.frameCounts = {};
+    this.linkState = "idle";
+    this.artProof = emptyArtProof();
 
-    this.zoom = 2;
-    this.useSmoothing = false;
+    this.unmountCamera = mountCameraInput(this.canvas, (gesture) => this.onCameraGesture(gesture), {
+      getContext: () => ({
+        units: unitsFromState(this.state).units,
+        cameraState: this.camera,
+        bounds: this.bounds,
+      }),
+    });
 
-    this.setupInput();
-    this.setupTouch();
     this.setupCanvas();
   }
 
   setupCanvas() {
     const resize = () => {
       const container = document.getElementById("container");
-      const maxWidth = container.clientWidth;
-      const maxHeight = container.clientHeight;
-      
-      if (this.map) {
-        // Calculate zoom: shortSidePx / (16 * 32)
-        const shortSide = Math.min(maxWidth, maxHeight);
-        const targetZoom = shortSide / (16 * CONFIG.tileSize);
-        
-        if (targetZoom >= 2) {
-          // Use whole-number zoom with nearest-neighbour
-          this.zoom = Math.floor(targetZoom);
-          this.useSmoothing = false;
-        } else {
-          // Use fractional zoom with smoothing
-          this.zoom = targetZoom;
-          this.useSmoothing = true;
-        }
-        
-        this.ctx.imageSmoothingEnabled = this.useSmoothing;
-        
-        // Canvas shows viewport
+      const maxWidth = container ? container.clientWidth : 0;
+      const maxHeight = container ? container.clientHeight : 0;
+      if (this.map && maxWidth > 0 && maxHeight > 0) {
         this.canvas.width = maxWidth;
         this.canvas.height = maxHeight;
-      } else {
+        this.syncCamera(maxWidth, maxHeight);
+      } else if (!this.map) {
         this.canvas.width = 800;
         this.canvas.height = 600;
       }
@@ -70,128 +75,61 @@ export class Game {
     window.addEventListener("orientationchange", () => setTimeout(resize, 100));
     resize();
   }
-  
-  setupTouch() {
-    const joystick = document.getElementById("joystick");
-    const stick = document.getElementById("joystick-stick");
-    
-    if (!joystick) return;
-    
-    let touchId = null;
-    const maxRadius = 50;
-    
-    const handleTouch = (e) => {
-      e.preventDefault();
-      const rect = joystick.getBoundingClientRect();
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const touch = e.touches[0] || e.changedTouches[0];
-      
-      const dx = touch.clientX - rect.left - centerX;
-      const dy = touch.clientY - rect.top - centerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      if (dist > 0) {
-        const clampedDist = Math.min(dist, maxRadius);
-        const angle = Math.atan2(dy, dx);
-        const stickX = Math.cos(angle) * clampedDist;
-        const stickY = Math.sin(angle) * clampedDist;
-        
-        stick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
-        
-        this.touchDx = dx / maxRadius;
-        this.touchDy = dy / maxRadius;
-        this.touchActive = true;
-      }
-    };
-    
-    const resetTouch = () => {
-      stick.style.transform = 'translate(-50%, -50%)';
-      this.touchDx = 0;
-      this.touchDy = 0;
-      this.touchActive = false;
-      touchId = null;
-    };
-    
-    joystick.addEventListener("touchstart", (e) => {
-      if (touchId === null) {
-        touchId = e.touches[0].identifier;
-        handleTouch(e);
-      }
-    });
-    
-    joystick.addEventListener("touchmove", (e) => {
-      if (touchId !== null) {
-        handleTouch(e);
-      }
-    });
-    
-    joystick.addEventListener("touchend", (e) => {
-      for (const touch of e.changedTouches) {
-        if (touch.identifier === touchId) {
-          resetTouch();
-          break;
-        }
-      }
-    });
-    
-    joystick.addEventListener("touchcancel", resetTouch);
-  }
 
-  setupInput() {
-    window.addEventListener("keydown", (e) => {
-      if (["w", "a", "s", "d", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight"].includes(e.key)) {
-        e.preventDefault();
-        this.keys.add(e.key.toLowerCase());
-      }
-    });
-
-    window.addEventListener("keyup", (e) => {
-      this.keys.delete(e.key.toLowerCase());
-    });
-  }
-
-  getInput() {
-    let dx = 0;
-    let dy = 0;
-
-    // Keyboard input
-    if (this.keys.has("w") || this.keys.has("arrowup")) dy -= 1;
-    if (this.keys.has("s") || this.keys.has("arrowdown")) dy += 1;
-    if (this.keys.has("a") || this.keys.has("arrowleft")) dx -= 1;
-    if (this.keys.has("d") || this.keys.has("arrowright")) dx += 1;
-    
-    // Touch input (override keyboard if active)
-    if (this.touchActive) {
-      dx = this.touchDx;
-      dy = this.touchDy;
+  syncCamera(width, height) {
+    if (!this.map) return;
+    this.bounds = boundsFromMap(this.map, CONFIG.tileSize);
+    if (!this.camera) {
+      this.camera = createCameraState({
+        viewportWidth: width,
+        viewportHeight: height,
+        bounds: this.bounds,
+      });
+    } else {
+      this.camera = updateCamera(this.camera, {
+        viewportWidth: width,
+        viewportHeight: height,
+      }, 0, this.bounds);
     }
-
-    return { dx, dy };
   }
 
-  sendInput() {
-    const { dx, dy } = this.getInput();
-    if (dx !== this.lastInputDx || dy !== this.lastInputDy) {
-      this.lastInputDx = dx;
-      this.lastInputDy = dy;
-      this.send({ type: "input", dx, dy });
+  onCameraGesture(gesture) {
+    if (gesture.cameraInput && this.camera && this.bounds) {
+      this.camera = updateCamera(this.camera, gesture.cameraInput, 0, this.bounds);
     }
+    if (gesture.gesture === "center-on-unit" && gesture.unitId) {
+      this.selectedUnitId = gesture.unitId;
+    } else if (gesture.gesture === "tap") {
+      this.selectedUnitId = gesture.unitId;
+    }
+  }
+
+  screenPoint(worldX, worldY) {
+    if (!this.camera || !this.bounds) return null;
+    return worldToScreen(this.camera, this.bounds, worldX, worldY);
+  }
+
+  noteFrame(type) {
+    this.frameCounts[type] = (this.frameCounts[type] || 0) + 1;
+    const el = document.getElementById("frames");
+    if (!el) return;
+    el.textContent = "Frames: " + Object.entries(this.frameCounts).map(([name, count]) => `${name}:${count}`).join(" ");
   }
 
   connect() {
     if (this.stopped) return;
 
     const wsUrl = this.serverOrigin.replace(/^http/, "ws") + "/ws";
+    this.linkState = "connecting";
     this.updateStatus("Connecting to " + wsUrl);
 
     this.ws = new WebSocket(wsUrl);
 
     this.ws.addEventListener("open", () => {
       this.reconnectAttempt = 0;
+      this.linkState = "open";
+      this.noteFrame("open");
       this.updateStatus("Connected");
-      
-      // Join as human
       this.send({
         type: "join",
         name: "Player" + Math.floor(Math.random() * 1000),
@@ -202,6 +140,7 @@ export class Game {
     this.ws.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(event.data);
+        this.noteFrame(msg.type || "unknown");
         this.handleMessage(msg);
       } catch (err) {
         console.error("Failed to parse message:", err);
@@ -209,6 +148,8 @@ export class Game {
     });
 
     this.ws.addEventListener("close", () => {
+      this.linkState = "closed";
+      this.noteFrame("close");
       if (this.stopped) return;
       this.reconnectAttempt++;
       const wait = Math.min(5000, 500 * this.reconnectAttempt);
@@ -217,6 +158,8 @@ export class Game {
     });
 
     this.ws.addEventListener("error", (err) => {
+      this.linkState = "error";
+      this.noteFrame("error");
       console.error("WebSocket error:", err);
     });
   }
@@ -242,6 +185,7 @@ export class Game {
       this.updateStatus(`${msg.winner} team wins! New round starting...`);
     } else if (msg.type === "newMap") {
       this.map = msg.map;
+      this.camera = null;
       this.setupCanvas();
       this.updateStatus("New round started!");
     } else if (msg.type === "heartbeat") {
@@ -253,12 +197,17 @@ export class Game {
 
   updateScore() {
     const scoreEl = document.getElementById("score");
-    scoreEl.textContent = `Red ${this.score.red} - ${this.score.bot} Bot`;
+    if (scoreEl) scoreEl.textContent = `Red ${this.score.red} - ${this.score.bot} Bot`;
   }
 
   updateStatus(text) {
     const statusEl = document.getElementById("status");
-    statusEl.textContent = text;
+    if (statusEl) statusEl.textContent = text;
+  }
+
+  publishFog(description) {
+    const el = document.getElementById("fog");
+    if (el) el.textContent = fogLabel(description);
   }
 
   send(msg) {
@@ -272,99 +221,190 @@ export class Game {
     const width = this.canvas.width;
     const height = this.canvas.height;
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#1a1a1a";
     ctx.fillRect(0, 0, width, height);
 
-    if (!this.map || !this.state) {
+    if (!this.map || !this.state || !this.camera || !this.bounds) {
       ctx.fillStyle = "#fff";
-      ctx.font = "20px Arial";
+      ctx.font = "20px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("Waiting for game...", width / 2, height / 2);
+      this.publishFog(describeFog(this.state));
       return;
     }
 
+    const proof = emptyArtProof();
+    const time = Date.now();
+    const world = cameraTransform(this.camera, this.bounds);
+
     ctx.save();
+    ctx.imageSmoothingEnabled = world.smoothing;
+    ctx.translate(world.offsetX, world.offsetY);
+    ctx.scale(world.zoom, world.zoom);
 
-    // Camera follows player
-    const ownPlayer = this.state.players.find((p) => p.id === this.playerId);
-    if (ownPlayer) {
-      // Player position in world pixels
-      const camX = ownPlayer.x * CONFIG.tileSize * this.zoom;
-      const camY = ownPlayer.y * CONFIG.tileSize * this.zoom;
-      
-      // Center on player
-      let offsetX = width / 2 - camX;
-      let offsetY = height / 2 - camY;
+    this.drawTerrain(ctx, proof);
+    this.drawBases(ctx, proof);
 
-      // Clamp camera to map bounds
-      const mapWidth = this.map.width * CONFIG.tileSize * this.zoom;
-      const mapHeight = this.map.height * CONFIG.tileSize * this.zoom;
-      
-      if (mapWidth > width) {
-        offsetX = Math.min(0, Math.max(width - mapWidth, offsetX));
-      } else {
-        offsetX = (width - mapWidth) / 2;
-      }
-      
-      if (mapHeight > height) {
-        offsetY = Math.min(0, Math.max(height - mapHeight, offsetY));
-      } else {
-        offsetY = (height - mapHeight) / 2;
-      }
-
-      ctx.translate(offsetX, offsetY);
+    let fog = describeFog(this.state);
+    if (fog.availability === "data-present") {
+      drawFog(ctx, this.state.fog, CONFIG.tileSize);
+      fog = {
+        ...fog,
+        availability: "applied",
+        applied: true,
+        secure: false,
+        reason: "Snapshot masks were painted in world pixels. Units still come only from state.players.",
+      };
     }
 
-    ctx.scale(this.zoom, this.zoom);
-
-    // Draw map
-    for (let y = 0; y < this.map.height; y++) {
-      for (let x = 0; x < this.map.width; x++) {
-        const tile = this.map.tiles[y][x];
-        drawTile(ctx, tile, x * CONFIG.tileSize, y * CONFIG.tileSize, this.map.tiles);
-      }
+    const roster = unitsFromState(this.state);
+    if (this.selectedUnitId != null && !roster.units.some((unit) => unit && unit.id === this.selectedUnitId)) {
+      this.selectedUnitId = null;
     }
-
-    // Draw bases
-    drawBase(ctx, this.map.bases.red, "red");
-    drawBase(ctx, this.map.bases.bot, "bot");
-
-    // Draw flags
-    const time = Date.now();
-    drawFlag(ctx, this.state.flags.red, "red", time);
-    drawFlag(ctx, this.state.flags.bot, "bot", time);
-
-    // Draw players (own player last for highlight visibility)
-    const time = Date.now();
-    const otherPlayers = this.state.players.filter((p) => p.id !== this.playerId);
-    const ownPlayerObj = this.state.players.find((p) => p.id === this.playerId);
-
-    for (const player of otherPlayers) {
-      drawPlayer(ctx, player, time, false);
-    }
-
-    if (ownPlayerObj) {
-      drawPlayer(ctx, ownPlayerObj, time, true);
-    }
+    this.drawFlags(ctx, time, proof);
+    this.drawUnits(ctx, time, proof);
+    const overlay = renderUnitOverlay({
+      nowMs: time,
+      viewerTeam: this.team,
+      selectedUnitId: this.selectedUnitId,
+      units: roster.units,
+      presentation: presentationFromUnits(roster.units),
+      mapPings: mapPingsFromState(this.state),
+      camera: this.camera,
+      bounds: this.bounds,
+    });
+    paintUnitOverlay(ctx, overlay.markers, (context, frame, x, y, w, h) => {
+      const sprite = spriteLoader.getSprite(frame);
+      if (!sprite) return false;
+      context.drawImage(sprite.image, sprite.x, sprite.y, sprite.w, sprite.h, x, y, w, h);
+      return true;
+    });
 
     ctx.restore();
+    this.artProof = proof;
+    this.publishFog(fog);
+  }
+
+  drawTerrain(ctx, proof) {
+    const tiles = this.map.tiles;
+    for (let y = 0; y < this.map.height; y++) {
+      for (let x = 0; x < this.map.width; x++) {
+        const tile = tiles[y][x];
+        const frameName = terrainFrameName(tile, x, y, tiles);
+        let drawn = false;
+        if (frameName && spriteLoader.loaded) {
+          const sprite = spriteLoader.getSprite(frameName);
+          if (sprite) {
+            const dest = terrainDestRect(x, y, sprite.w, sprite.h, CONFIG.tileSize);
+            const result = drawLoadedFrame(ctx, spriteLoader, frameName, dest);
+            drawn = result.drawn;
+            if (drawn) proof.terrainFrames[frameName] = (proof.terrainFrames[frameName] || 0) + 1;
+          }
+        }
+        if (!drawn) {
+          proof.fallbackTiles += 1;
+          drawTile(ctx, tile, x * CONFIG.tileSize, y * CONFIG.tileSize, tiles);
+        }
+      }
+    }
+  }
+
+  drawBases(ctx, proof) {
+    for (const team of ["red", "bot"]) {
+      const base = this.map.bases && this.map.bases[team];
+      if (!base) continue;
+      const frameName = `base_${team}`;
+      const sprite = spriteLoader.loaded ? spriteLoader.getSprite(frameName) : null;
+      if (!sprite) {
+        drawBase(ctx, base, team);
+        continue;
+      }
+      const dest = {
+        x: (base.x - 1) * CONFIG.tileSize,
+        y: (base.y - 1) * CONFIG.tileSize,
+        w: sprite.w,
+        h: sprite.h,
+      };
+      const result = drawLoadedFrame(ctx, spriteLoader, frameName, dest);
+      if (result.drawn) proof.bases += 1;
+      else drawBase(ctx, base, team);
+    }
+  }
+
+  drawFlags(ctx, time, proof) {
+    for (const { team, flag } of drawableFlags(this.state && this.state.flags)) {
+      if (flag.carrier) continue;
+      const frameName = `flag_${team}_${Math.floor(time / 250) % 2}`;
+      const sprite = spriteLoader.loaded ? spriteLoader.getSprite(frameName) : null;
+      if (!sprite) {
+        drawFlag(ctx, flag, team, time);
+        continue;
+      }
+      const dest = {
+        x: flag.x * CONFIG.tileSize - sprite.w / 2,
+        y: flag.y * CONFIG.tileSize - sprite.h / 2,
+        w: sprite.w,
+        h: sprite.h,
+      };
+      const result = drawLoadedFrame(ctx, spriteLoader, frameName, dest);
+      if (result.drawn) proof.flags += 1;
+      else drawFlag(ctx, flag, team, time);
+    }
+  }
+
+  drawUnits(ctx, time, proof) {
+    const roster = unitsFromState(this.state);
+    for (const player of roster.units) {
+      const frameName = characterFrameName(player, time);
+      const pivot = spriteLoader.loaded ? atlasPivotForFrame(spriteLoader.atlas, frameName) : null;
+      const sprite = spriteLoader.loaded ? spriteLoader.getSprite(frameName, player.team) : null;
+      const dest = sprite && pivot
+        ? characterDestRect(player.x, player.y, sprite.w, sprite.h, pivot, CONFIG.tileSize)
+        : null;
+      const result = dest
+        ? drawLoadedFrame(ctx, spriteLoader, frameName, dest, player.team)
+        : { drawn: false, frameName };
+      if (!result.drawn) drawPlayer(ctx, player, time, false);
+      if (!proof.character) {
+        proof.character = {
+          id: player.id,
+          key: frameName,
+          drawn: result.drawn,
+          pivot: pivot ? { x: pivot.x, y: pivot.y } : null,
+          w: sprite ? sprite.w : null,
+          h: sprite ? sprite.h : null,
+        };
+      }
+    }
   }
 
   start() {
+    spriteLoader.load();
     this.connect();
-
-    // Input loop
-    setInterval(() => {
-      if (this.playerId && this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.sendInput();
-      }
-    }, 50);
-
-    // Render loop
     const loop = () => {
+      if (this.stopped) return;
       this.render();
       requestAnimationFrame(loop);
     };
     loop();
   }
+
+  destroy() {
+    this.stopped = true;
+    this.unmountCamera?.();
+    this.unmountCamera = null;
+    if (this.ws) this.ws.close();
+  }
+}
+
+function emptyArtProof() {
+  return {
+    character: null,
+    terrainFrames: {},
+    fallbackTiles: 0,
+    bases: 0,
+    flags: 0,
+    treeDrawn: 0,
+  };
 }

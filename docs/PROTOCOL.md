@@ -184,8 +184,35 @@ From `apps/server/game.js` CONFIG:
 - `tickRate`: 20 Hz
 - `winScore`: 3 captures
 - `matchEndDelayMs`: 5000 (delay before new map)
-- `visionRadius`: 7 tiles (for future fog of war)
-- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight)
+- `visionRadius`: 7 tiles (Euclidean to the tile center, inclusive)
+- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight; the blocker tile is seen, past it is not)
+
+## Fog (team snapshot)
+
+`state` on `/ws` is per team, from `Match.clientStateFor`. `getState()` remains the full server view and is not broadcast.
+
+Player `x` and `y` stay tile coordinates. A mask cell is integer tile `(x, y)` at index `y * width + x` (`encoding: "row-major-u8"`, values 0 or 1). `fog.explored` lasts until the round resets. `fog.visible` is this tick. Each team receives only its own masks. Enemies are omitted unless their tile is visible. A flag the team cannot see is `{ "hidden": true }` with no coordinates. The static map in `welcome` / `newMap` is still the full tile grid.
+
+`assessOrderTarget` checks a tile for a later order: `scout` may be unexplored, `tag` must be visible now, other orders must be explored. It does not spend command points or apply an order.
+
+`state.fog` fields, and nothing else is required to draw:
+
+```json
+{
+  "width": 64,
+  "height": 40,
+  "encoding": "row-major-u8",
+  "team": "red",
+  "visible": [0, 1],
+  "explored": [0, 1]
+}
+```
+
+`visible` and `explored` are flat arrays of 0 and 1. Tile size is not in the snapshot. Use 32, or `map.tileSize` if the client already has one. Player `x` and `y` are unchanged: tile coordinates, not pixels.
+
+`apps/web/fog.js` exports `drawFog(ctx, fog, mapOrTileSize)`. It registers no listeners. Call it in the world pass after `translate` / `scale`, so the mask is in world pixels (`width * tileSize` by `height * tileSize`). One source pixel per tile is scaled with smoothing. Unexplored is `#1A1020`, explored is `#1A1020` at 60% alpha, and a visible cell is clear. This file does not edit `game.js`. The client owner calls `drawFog` once `state.fog` exists. A hidden flag must not be drawn when `hidden` is true.
+
+Turning the overlay off cannot reveal enemies or flag coordinates that were left out of `state`.
 
 ## Map Generation
 
@@ -196,3 +223,75 @@ From `apps/server/game.js` CONFIG:
 - Connectivity validated via flood fill between bases
 - Minimum 40 obstacles with variety (walls, crates, bushes) enforced
 - Failed maps regenerate with incremented seed until valid
+
+## Lobby contract (not served by `server.js` yet)
+
+Two commander seats. The server is authoritative. `apps/server/lobby.js` implements the state machine. The live `/ws` handler does not route it yet. The adapter note is `apps/server/LOBBY_INTEGRATION.md`.
+
+Seat 1 is team `red`. Seat 2 is team `bot`. Those ids match match-lifecycle. In issue 19 wording, seat 1 is team A and seat 2 is team B.
+
+A room id is 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The share link is `/lobby.html?room=AB2K` and never carries the resume token.
+
+### Client → server
+
+```json
+{ "type": "room_create" }
+{ "type": "room_join", "roomId": "AB2K" }
+{ "type": "room_join", "roomId": "AB2K", "resumeToken": "secret" }
+```
+
+`resumeToken` is sent only by the commander who owns that seat, on `room_join`, to reclaim it.
+
+### Server → client
+
+Public, to every commander in the room. No resume token:
+
+```json
+{
+  "type": "room_state",
+  "roomId": "AB2K",
+  "sharePath": "/lobby.html?room=AB2K",
+  "phase": "lobby",
+  "atMs": 0,
+  "seats": [
+    { "seat": 1, "team": "red", "filled": true, "connected": true },
+    { "seat": 2, "team": "bot", "filled": false, "connected": false }
+  ]
+}
+```
+
+```json
+{ "type": "room_error", "error": "room_full", "roomId": "AB2K" }
+```
+
+`room_error.error` is `invalid_room`, `room_full`, `seat_lost`, or `invalid_token`.
+
+Private unicast to the socket that just created, joined, or resumed. This is the only message that carries `resumeToken`:
+
+```json
+{
+  "type": "room_welcome",
+  "ok": true,
+  "error": null,
+  "roomId": "AB2K",
+  "seat": 1,
+  "team": "red",
+  "resumeToken": "secret",
+  "started": false
+}
+```
+
+### Library result
+
+`createRoom(connectionId, now)`, `joinRoom(roomId, connectionId, resumeToken, now)`, and `disconnect(connectionId, now)` return `{ ok, error, roomId, seat, team, resumeToken?, started, events }`. `snapshot(roomId)` is the public board and has no token. `events` are `room_state` or `room_error` only.
+
+`started` is true only on the call that fills the second seat. The core then creates one Match for that `roomId` and admits those two commanders, with no human body. Later resumes return `started: false`.
+
+### Seat rules
+
+- The lowest empty seat is assigned. Seats do not renumber.
+- A third join, or a join without the matching token after the match has started, is `room_full`.
+- A malformed or unknown room id is `invalid_room`.
+- Disconnect in `lobby` frees the seat. The same token resumes it if it is still empty. If it was taken, the error is `seat_lost`.
+- Disconnect in `match` does not free the seat and does not end the match. The seat stays filled with `connected: false`. The same token resumes it. Bots for that team stay on autopilot; this contract does not run autopilot.
+- One match per room. The live `join` path is unchanged until the core adapter lands.
