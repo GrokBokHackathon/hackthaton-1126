@@ -2,10 +2,11 @@ FROM docker.io/library/node:22-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js game.js ./
+COPY apps/server/server.js apps/server/game.js ./
+COPY apps/web ./web
 
 ENV PORT=8080
 EXPOSE 8080
