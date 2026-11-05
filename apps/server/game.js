@@ -1,5 +1,6 @@
 // Core game logic: map generation, match loop, rules
 import { randomBytes } from "node:crypto";
+import { steerSquad } from "./autopilot.js";
 import { clientSnapshot, resetFog } from "./fog.js";
 
 // Configuration
@@ -12,6 +13,7 @@ export const CONFIG = {
   flagPickupRadius: 0.7,
   tagRadius: 0.8,
   respawnTimeMs: 2000,
+  botRespawnTimeMs: 3000,
   tickRate: 20, // Hz
   winScore: 3,
   matchEndDelayMs: 5000,
@@ -212,8 +214,8 @@ export class Match {
     };
   }
 
-  addPlayer(id, name, kind) {
-    const team = kind === "human" ? "red" : "bot";
+  addPlayer(id, name, kind, teamOverride) {
+    const team = teamOverride === "red" || teamOverride === "bot" ? teamOverride : kind === "human" ? "red" : "bot";
     const base = this.map.bases[team];
     const player = {
       id,
@@ -228,6 +230,10 @@ export class Match {
       dx: 0,
       dy: 0,
       respawnTime: null,
+      autopilot: false,
+      controller: kind === "human" ? "human" : "client",
+      role: null,
+      order: null,
     };
     this.players.set(id, player);
 
@@ -300,6 +306,7 @@ export class Match {
 
     this.tickCount++;
     const events = [];
+    steerSquad(this, CONFIG.flagPickupRadius);
 
     // Update players
     for (const player of this.players.values()) {
@@ -420,7 +427,8 @@ export class Match {
             flag.y = this.map.bases[enemyTeam].y;
             other.hasFlag = false;
             other.state = "tagged";
-            other.respawnTime = Date.now() + CONFIG.respawnTimeMs;
+            const respawnMs = other.kind === "bot" ? CONFIG.botRespawnTimeMs : CONFIG.respawnTimeMs;
+            other.respawnTime = Date.now() + respawnMs;
           }
         }
       }
@@ -444,6 +452,9 @@ export class Match {
         dir: p.dir,
         hasFlag: p.hasFlag,
         state: p.state,
+        role: p.role || null,
+        controller: p.controller || null,
+        order: p.order || null,
       })),
       flags: {
         red: {
