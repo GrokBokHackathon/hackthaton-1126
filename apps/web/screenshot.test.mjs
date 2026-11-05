@@ -45,11 +45,14 @@ async function captureScreenshot() {
     });
     const page = await context.newPage();
     
-    // Capture console warnings to detect sprite fallbacks
+    // Capture all console messages for debugging
     const consoleWarnings = [];
+    const consoleMessages = [];
     page.on("console", (msg) => {
-      if (msg.type() === "warning" && msg.text().includes("sprite")) {
-        consoleWarnings.push(msg.text());
+      const text = msg.text();
+      consoleMessages.push(text);
+      if ((msg.type() === "warning" || msg.type() === "warn") && text.toLowerCase().includes("sprite")) {
+        consoleWarnings.push(text);
       }
     });
 
@@ -147,9 +150,15 @@ async function captureScreenshot() {
     console.log(`Taking screenshot to ${SCREENSHOT_PATH}...`);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: false });
 
+    // Print all console messages for debugging
+    if (consoleMessages.length > 0) {
+      console.log("\nBrowser console output:");
+      consoleMessages.forEach((msg) => console.log(`  ${msg}`));
+    }
+
     // Check for sprite fallback warnings
     if (consoleWarnings.length > 0) {
-      console.error("✗ Sprite fallback warnings detected:");
+      console.error("\n✗ Sprite fallback warnings detected:");
       consoleWarnings.forEach((warning) => console.error(`  ${warning}`));
       throw new Error("Characters or flags fell back to emoji/shape rendering");
     }

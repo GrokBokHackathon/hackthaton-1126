@@ -52,7 +52,8 @@ export class SpriteLoader {
 
         await Promise.all(imagePromises);
         this.loaded = true;
-        console.log("Sprite atlas loaded successfully");
+        console.log(`Sprite atlas loaded successfully: ${this.images.size} images`);
+        console.log("Loaded images:", Array.from(this.images.keys()));
         return true;
       } catch (err) {
         console.warn("Failed to load sprite atlas:", err);
@@ -85,7 +86,10 @@ export class SpriteLoader {
    * @returns {object|null} {image, x, y, w, h, pivot} or null if not found
    */
   getSprite(key, team = null) {
-    if (!this.loaded || !this.atlas) return null;
+    if (!this.loaded || !this.atlas) {
+      console.warn(`getSprite called but loaded=${this.loaded}, atlas=${!!this.atlas}`);
+      return null;
+    }
 
     // Search through all groups for the frame
     for (const [groupName, group] of Object.entries(this.atlas)) {
@@ -102,7 +106,7 @@ export class SpriteLoader {
 
       const image = this.images.get(imagePath);
       if (!image) {
-        console.warn(`Image not loaded: ${imagePath}`);
+        console.warn(`getSprite: Image not loaded for ${imagePath}, available images:`, Array.from(this.images.keys()));
         return null;
       }
 
@@ -116,6 +120,10 @@ export class SpriteLoader {
       };
     }
 
+    // Key not found in any group
+    if (key.startsWith("char_")) {
+      console.warn(`getSprite: Character key "${key}" not found in atlas, team=${team}`);
+    }
     return null;
   }
 
@@ -171,10 +179,22 @@ export class SpriteLoader {
    */
   drawAt(ctx, key, x, y, zoom = 1, team = null) {
     const sprite = this.getSprite(key, team);
-    if (!sprite) return false;
+    if (!sprite) {
+      if (key.startsWith("char_")) {
+        console.warn(`drawAt: getSprite returned null for key="${key}", team="${team}"`);
+      }
+      return false;
+    }
 
     const drawW = sprite.w * zoom;
     const drawH = sprite.h * zoom;
+
+    // Debug log first character draw
+    if (typeof window !== "undefined" && !window._firstDrawAtLogged && key.startsWith("char_")) {
+      const imageSrc = sprite.image.src || sprite.image.currentSrc || "unknown";
+      console.log(`drawAt: drawing ${key} team=${team} at (${Math.round(x)}, ${Math.round(y)}) size=${drawW}x${drawH} from sprite (${sprite.x}, ${sprite.y}, ${sprite.w}, ${sprite.h}) using image: ${imageSrc}`);
+      window._firstDrawAtLogged = true;
+    }
 
     try {
       ctx.drawImage(

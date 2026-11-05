@@ -162,14 +162,18 @@ export function drawPlayer(ctx, player, time, isOwn = false) {
 
   // Try to draw sprite from art pack
   const spriteKey = getCharSpriteKey(player.dir, player.state, player.hasFlag, time);
+  
+  // Debug: log first draw attempt
+  if (typeof window !== "undefined" && !window._firstPlayerDrawLogged) {
+    console.log(`First player draw: key="${spriteKey}", team="${player.team}", state="${player.state}", hasFlag=${player.hasFlag}`);
+    window._firstPlayerDrawLogged = true;
+  }
+  
   const drawn = spriteLoader.drawAt(ctx, spriteKey, x, y, 1, player.team);
 
   if (!drawn && player.state !== "respawn") {
-    // Log sprite miss for debugging (exclude respawn which shows effect instead)
-    if (typeof window !== "undefined" && !window._spriteMissLogged) {
-      console.warn(`Character sprite not drawn: key="${spriteKey}", team="${player.team}"`);
-      window._spriteMissLogged = true;
-    }
+    // Log sprite miss for debugging
+    console.warn(`Character sprite NOT drawn: key="${spriteKey}", team="${player.team}", loaded=${spriteLoader.loaded}, hasSprite=${spriteLoader.hasSprite(spriteKey)}`);
     // Fallback to emoji
     const emoji = TEAM_EMOJI[player.team] || "🤖";
     const color = TEAM_COLORS[player.team] || "#fff";
