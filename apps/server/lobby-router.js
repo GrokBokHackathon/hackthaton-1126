@@ -89,6 +89,10 @@ export function createLobbyRouter({
       return connectionId;
     },
 
+    isSeated(connectionId) {
+      return Boolean(sessions.get(connectionId)?.roomId);
+    },
+
     handle(connectionId, ws, msg) {
       if (!msg || typeof msg !== "object") return false;
       const at = now();

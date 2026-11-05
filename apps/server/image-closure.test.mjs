@@ -79,6 +79,8 @@ test("Dockerfile COPY includes every relative import from server.js", () => {
     assert.ok(copied.has(name), `image COPY is missing runtime import ${name}`);
   }
   assert.ok(needed.has("match-lifecycle.js"));
+  assert.ok(needed.has("lobby-router.js"));
+  assert.ok(needed.has("lobby.js"));
 });
 
 test("the exact COPY layout boots and answers health plus a join", async () => {

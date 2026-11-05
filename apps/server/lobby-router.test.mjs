@@ -109,6 +109,44 @@ test("live Match results and newMap stay on the broadcast path", () => {
   assert.equal(match.clientStateFor("red").winner, null);
 });
 
+test("a commander room does not tick until core activates the match", async () => {
+  const { child, ready } = startServer();
+  try {
+    const port = await ready;
+    const red = connect(port);
+    const bot = connect(port);
+    await Promise.all([once(red.ws, "open"), once(bot.ws, "open")]);
+    red.ws.send(JSON.stringify({ type: "room_create" }));
+    const created = await waitFor(red.incoming, (message) => message.type === "room_welcome");
+    bot.ws.send(JSON.stringify({ type: "room_join", roomId: created.roomId }));
+    const joined = await waitFor(bot.incoming, (message) => message.type === "room_welcome");
+    assert.equal(joined.started, true);
+    assert.equal(joined.team, "bot");
+    const first = await waitFor(red.incoming, (message) => message.type === "state");
+    assert.equal(first.phase, "waiting");
+    assert.equal(first.players.some((player) => player.kind === "human"), false);
+    assert.ok(first.players.length > 0);
+    const places = (message) =>
+      message.players.map((player) => [player.id, player.x, player.y]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    const startedAt = places(first);
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const last = latest(red.incoming, (message) => message.type === "state");
+    assert.equal(last.phase, "waiting");
+    assert.equal(last.remainingMs, first.remainingMs);
+    assert.deepEqual(places(last), startedAt);
+    red.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human" }));
+    const rejected = await waitFor(red.incoming, (message) => message.type === "join_rejected");
+    assert.equal(rejected.reason, "already_seated");
+    const after = latest(red.incoming, (message) => message.type === "state");
+    assert.equal(after.players.some((player) => player.kind === "human"), false);
+    red.ws.close();
+    bot.ws.close();
+  } finally {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+  }
+});
+
 test("two websocket clients seat opposite commanders on separate room matches", async () => {
   const { child, ready } = startServer();
   try {

@@ -143,8 +143,8 @@ const clients = new Map(); // playerId -> ws
 
 function armRoomMatch(next) {
   spawnSquad(next, squadSize);
-  // Match enters "playing" only when a human body joins. Commanders are not bodies.
-  next.phase = "playing";
+  // Do not force phase. Match stays waiting with no human body until core
+  // publishes an explicit activation call. This router will use that API then.
   return next;
 }
 
@@ -209,6 +209,10 @@ wss.on("connection", (ws) => {
     if (roomRouter.handle(connectionId, ws, msg)) return;
 
     if (msg.type === "join") {
+      if (roomRouter.isSeated(connectionId)) {
+        ws.send(JSON.stringify({ type: "join_rejected", reason: "already_seated" }));
+        return;
+      }
       if (playerId) return; // Already joined
 
       const name = String(msg.name || "Player").slice(0, 20);
