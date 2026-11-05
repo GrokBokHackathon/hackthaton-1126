@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import { spawnSquad } from "./autopilot.js";
 import { applyCommand, commandView, visionFor } from "./commands.js";
 import { CONFIG, Match } from "./game.js";
+import { createLobbyRouter, shouldBroadcastState } from "./lobby-router.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = [path.join(here, "web"), path.join(here, "..", "web")].find((candidate) =>
@@ -47,15 +48,6 @@ function isAllowedStatic(rel) {
   const base = path.posix.basename(rel);
   if (base === "package.json" || base === "package-lock.json") return false;
   return Boolean(STATIC_TYPES[path.posix.extname(base).toLowerCase()]);
-}
-
-function shouldBroadcastState(phase) {
-  return (
-    phase === "waiting" ||
-    phase === "playing" ||
-    phase === "sudden_death" ||
-    phase === "results"
-  );
 }
 
 function resolveStatic(urlPath) {
@@ -141,11 +133,29 @@ const server = http.createServer((req, res) => {
   writeJson(res, 404, { ok: false, error: "not_found" });
 });
 
-// Game state
+// Game state. The legacy `join` path stays on this match.
+// Each started lobby room gets its own Match from the router below.
 const match = new Match();
 const botsPerTeam = Number(process.env.BOTS_PER_TEAM ?? 3);
-spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
+const squadSize = Number.isFinite(botsPerTeam) ? botsPerTeam : 3;
+spawnSquad(match, squadSize);
 const clients = new Map(); // playerId -> ws
+
+function armRoomMatch(next) {
+  spawnSquad(next, squadSize);
+  // Squad must exist first. This does not insert a human body.
+  next.activateCommanderRoom();
+  return next;
+}
+
+const roomRouter = createLobbyRouter({
+  createMatch() {
+    return armRoomMatch(new Match());
+  },
+  onNewMap: armRoomMatch,
+  visionRadius: CONFIG.visionRadius,
+  visionBlockers: CONFIG.visionBlockers,
+});
 
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -168,6 +178,7 @@ function sendTo(playerId, message) {
 wss.on("connection", (ws) => {
   let playerId = null;
   let heartbeatTimer = null;
+  const connectionId = roomRouter.open();
 
   ws.send(
     JSON.stringify({
@@ -195,7 +206,13 @@ wss.on("connection", (ws) => {
       return;
     }
 
+    if (roomRouter.handle(connectionId, ws, msg)) return;
+
     if (msg.type === "join") {
+      if (roomRouter.isSeated(connectionId)) {
+        ws.send(JSON.stringify({ type: "join_rejected", reason: "already_seated" }));
+        return;
+      }
       if (playerId) return; // Already joined
 
       const name = String(msg.name || "Player").slice(0, 20);
@@ -230,6 +247,7 @@ wss.on("connection", (ws) => {
 
   const cleanup = () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    roomRouter.close(connectionId);
     if (playerId) {
       clients.delete(playerId);
       match.removePlayer(playerId);
@@ -252,11 +270,13 @@ setInterval(() => {
   // Broadcast events
   for (const event of events) {
     broadcast(event);
-    if (event.type === "newMap") spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
+    if (event.type === "newMap") spawnSquad(match, squadSize);
   }
 
-  // Same phases as main after PR39: play, sudden death, and the results hold.
-  // The HUD reads phase, remainingMs, roundId, winner, and winReason from this snapshot.
+  roomRouter.tick(dt);
+
+  // Play, sudden death, and the results hold. The HUD reads phase, remainingMs,
+  // roundId, winner, and winReason from this snapshot.
   if (shouldBroadcastState(match.phase)) {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY apps/server/server.js apps/server/game.js apps/server/path.js apps/server/autopilot.js apps/server/fog.js apps/server/commands.js apps/server/match-lifecycle.js ./
+COPY apps/server/server.js apps/server/game.js apps/server/path.js apps/server/autopilot.js apps/server/fog.js apps/server/commands.js apps/server/match-lifecycle.js apps/server/lobby-router.js apps/server/lobby.js ./
 COPY apps/web ./web
 COPY apps/web/command-panel.css ./web/command-panel.css
 

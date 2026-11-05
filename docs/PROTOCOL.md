@@ -235,7 +235,7 @@ Turning the overlay off cannot reveal enemies or flag coordinates that were left
 
 ## Lobby contract (not served by `server.js` yet)
 
-Two commander seats. The server is authoritative. `apps/server/lobby.js` implements the state machine. The live `/ws` handler does not route it yet. The adapter note is `apps/server/LOBBY_INTEGRATION.md`.
+Two commander seats. The server is authoritative. `apps/server/lobby.js` is the seat registry. `apps/server/lobby-router.js` is wired into `server.js` on the existing `/ws` port. Each started room gets its own Match. The legacy `join` path still uses the original single match.
 
 Seat 1 is team `red`. Seat 2 is team `bot`. Those ids match match-lifecycle. In issue 19 wording, seat 1 is team A and seat 2 is team B.
 
