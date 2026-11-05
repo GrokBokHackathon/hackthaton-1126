@@ -244,6 +244,7 @@ export class Match {
     this.lifecycle = opened.lifecycle;
     // Opening roundStarted has runHooks. installFreshRound already did that work once.
     this.phase = "waiting";
+    this.commanderRoom = false;
     this.score = { red: 0, bot: 0 };
     this.winner = null;
     this.winReason = null;
@@ -375,10 +376,35 @@ export class Match {
     }
     this.players.delete(id);
 
-    // Stop match if no humans
+    // A commander room has human sessions, not human bodies. Legacy rooms
+    // still pause when the last human unit leaves.
+    if (!this.commanderRoom && !this.hasHumans() && (this.phase === "playing" || this.phase === "sudden_death")) {
+      this.phase = "waiting";
+    }
+  }
+
+  activateCommanderRoom() {
+    this.commanderRoom = true;
+    if (this.phase !== "waiting") return this.snapshotPhase();
+    const live = this.lifecycle.snapshot().phase;
+    if (live === "playing" || live === "sudden_death") this.phase = live;
+    return this.snapshotPhase();
+  }
+
+  releaseCommanderRoom() {
+    this.commanderRoom = false;
     if (!this.hasHumans() && (this.phase === "playing" || this.phase === "sudden_death")) {
       this.phase = "waiting";
     }
+    return this.snapshotPhase();
+  }
+
+  snapshotPhase() {
+    return {
+      commanderRoom: this.commanderRoom,
+      phase: this.phase,
+      roundId: this.roundId,
+    };
   }
 
   hasHumans() {
