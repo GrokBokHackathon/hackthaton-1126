@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { steerSquad } from "./autopilot.js";
 import { beerActive, grantCaptureLoss, resetEconomy, speedScale, tickEconomy } from "./commands.js";
 import { clientSnapshot, resetFog } from "./fog.js";
+import { createMatchLifecycle } from "./match-lifecycle.js";
 
 // Configuration
 export const CONFIG = {
@@ -181,29 +182,90 @@ function directionName(dx, dy) {
 
 export class Match {
   constructor() {
-    this.reset();
+    this.players = new Map();
+    this.nowMs = 0;
+    this.tickCount = 0;
+    this.installFreshRound();
+    const opened = createMatchLifecycle(this.nowMs);
+    this.lifecycle = opened.lifecycle;
+    // Opening roundStarted has runHooks. installFreshRound already did that work once.
+    this.phase = "waiting";
+    this.score = { red: 0, bot: 0 };
+    this.winner = null;
+    this.winReason = null;
+    this.remainingMs = opened.remainingMs;
+    this.roundId = opened.roundId;
+    this.resultsEndsAtMs = null;
+    this.endTime = null;
+    this.newMapGenerated = true;
   }
 
-  reset() {
+  installFreshRound() {
     const seed = randomSeed();
     this.map = generateMap(seed);
-    this.players = new Map();
     this.flags = {
       red: { x: this.map.bases.red.x, y: this.map.bases.red.y, carrier: null },
       bot: { x: this.map.bases.bot.x, y: this.map.bases.bot.y, carrier: null },
     };
-    this.score = { red: 0, bot: 0 };
-    this.phase = "waiting"; // waiting, playing, ended
-    this.tickCount = 0;
-    this.winner = null;
-    this.endTime = null;
-    this.newMapGenerated = true; // Flag for server to send newMap message
     resetFog(this);
     resetEconomy(this);
   }
 
+  applyNewRoundHooks() {
+    this.installFreshRound();
+    for (const player of this.players.values()) {
+      const base = this.map.bases[player.team];
+      player.x = base.x;
+      player.y = base.y;
+      player.hasFlag = false;
+      player.state = "idle";
+      player.dx = 0;
+      player.dy = 0;
+      player.respawnTime = null;
+      player.waypoints = null;
+      player.waypointIndex = 0;
+      player.order = player.role ? { source: "role-default", role: player.role } : null;
+    }
+  }
+
+  publishLifecycle(view) {
+    this.score = { red: view.score.red, bot: view.score.bot };
+    this.winner = view.winner;
+    this.winReason = view.winReason;
+    this.remainingMs = view.remainingMs;
+    this.roundId = view.roundId;
+    this.resultsEndsAtMs = view.resultsEndsAtMs;
+    if (this.phase === "waiting") return;
+    this.phase = view.phase;
+  }
+
+  absorbLifecycle(view, events) {
+    this.publishLifecycle(view);
+    const ended = view.events.find((event) => event.type === "roundEnded");
+    if (ended) {
+      events.push({
+        type: "matchEnd",
+        winner: ended.winner,
+        finalScore: ended.score,
+        winReason: ended.reason,
+        resultsEndsAtMs: view.resultsEndsAtMs,
+        remainingMs: view.remainingMs,
+        roundId: view.roundId,
+      });
+    }
+  }
+
   clientStateFor(team) {
-    return clientSnapshot(this, team, CONFIG.visionRadius, CONFIG.visionBlockers);
+    const snap = clientSnapshot(this, team, CONFIG.visionRadius, CONFIG.visionBlockers);
+    return {
+      ...snap,
+      phase: this.phase,
+      score: { ...this.score },
+      winner: this.winner,
+      winReason: this.winReason,
+      remainingMs: this.remainingMs,
+      roundId: this.roundId,
+    };
   }
 
   getMapData() {
@@ -240,8 +302,9 @@ export class Match {
     this.players.set(id, player);
 
     // Start match if we have at least one human
-    if (this.phase === "waiting" && this.hasHumans()) {
-      this.phase = "playing";
+    if (this.hasHumans() && (this.phase === "waiting" || this.phase === "playing" || this.phase === "sudden_death")) {
+      const live = this.lifecycle.snapshot().phase;
+      if (live === "playing" || live === "sudden_death") this.phase = live;
     }
 
     return player;
@@ -259,7 +322,7 @@ export class Match {
     this.players.delete(id);
 
     // Stop match if no humans
-    if (this.phase === "playing" && !this.hasHumans()) {
+    if (!this.hasHumans() && (this.phase === "playing" || this.phase === "sudden_death")) {
       this.phase = "waiting";
     }
   }
@@ -280,39 +343,36 @@ export class Match {
   }
 
   tick(dt) {
-    if (this.phase === "ended") {
-      if (Date.now() >= this.endTime) {
-        const hadPlayers = this.players.size > 0;
-        this.reset();
-        if (hadPlayers) {
-          // Respawn existing players at their bases
-          for (const player of this.players.values()) {
-            const base = this.map.bases[player.team];
-            player.x = base.x + (Math.random() - 0.5) * 1.5;
-            player.y = base.y + (Math.random() - 0.5) * 1.5;
-            player.hasFlag = false;
-            player.state = "idle";
-            player.dx = 0;
-            player.dy = 0;
-            player.respawnTime = null;
-          }
-          return [{ type: "newMap", map: this.getMapData() }];
-        }
+    const events = [];
+    if (this.phase !== "waiting") {
+      this.nowMs += dt * 1000;
+      let life = this.lifecycle.tick(this.nowMs);
+      const due = life.events.find((event) => event.type === "resetRequired" && event.runHooks);
+      if (due) {
+        this.applyNewRoundHooks();
+        life = this.lifecycle.reset(this.nowMs);
+        this.absorbLifecycle(life, events);
+        events.push({ type: "newMap", map: this.getMapData(), roundId: life.roundId });
+        return events;
       }
-      return [];
+      this.absorbLifecycle(life, events);
+      if (this.phase === "results") {
+        this.tickCount++;
+        return events;
+      }
     }
 
-    if (this.phase !== "playing") {
-      return [];
+    if (this.phase !== "playing" && this.phase !== "sudden_death") {
+      return events;
     }
 
     this.tickCount++;
-    const events = [];
     tickEconomy(this, dt);
     steerSquad(this, CONFIG.flagPickupRadius);
 
     // Update players
     for (const player of this.players.values()) {
+      if (this.phase === "results") break;
       if (player.state === "tagged") {
         if (Date.now() >= player.respawnTime) {
           // Respawn at base
@@ -373,32 +433,21 @@ export class Match {
 
         // Check for capture
         const base = this.map.bases[player.team];
-        if (distance(player, base) < CONFIG.flagPickupRadius) {
-          // Score!
-          this.score[player.team]++;
-          grantCaptureLoss(this, enemyTeam);
-          events.push({
-            type: "scored",
-            team: player.team,
-            carrier: player.id,
-            score: { ...this.score },
-          });
-
-          // Return flag
-          flag.carrier = null;
-          flag.x = this.map.bases[enemyTeam].x;
-          flag.y = this.map.bases[enemyTeam].y;
-          player.hasFlag = false;
-
-          // Check win
-          if (this.score[player.team] >= CONFIG.winScore) {
-            this.phase = "ended";
-            this.winner = player.team;
-            this.endTime = Date.now() + CONFIG.matchEndDelayMs;
+        if (distance(player, base) < CONFIG.flagPickupRadius && (this.phase === "playing" || this.phase === "sudden_death")) {
+          const view = this.lifecycle.capture(player.team, this.nowMs);
+          const accepted = view.events.some((event) => event.type === "capture" && event.team === player.team);
+          if (accepted) {
+            grantCaptureLoss(this, enemyTeam);
+            flag.carrier = null;
+            flag.x = this.map.bases[enemyTeam].x;
+            flag.y = this.map.bases[enemyTeam].y;
+            player.hasFlag = false;
+            this.absorbLifecycle(view, events);
             events.push({
-              type: "matchEnd",
-              winner: player.team,
-              finalScore: { ...this.score },
+              type: "scored",
+              team: player.team,
+              carrier: player.id,
+              score: { ...this.score },
             });
           }
         }
@@ -447,6 +496,10 @@ export class Match {
       type: "state",
       tick: this.tickCount,
       phase: this.phase,
+      winner: this.winner,
+      winReason: this.winReason,
+      remainingMs: this.remainingMs,
+      roundId: this.roundId,
       players: Array.from(this.players.values()).map((p) => ({
         id: p.id,
         name: p.name,
