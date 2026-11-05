@@ -1,10 +1,9 @@
 # Flag Raid - Current Status
 
-**Branch**: `cursor/playable-slice-cba3`  
-**PR**: #2 (stacked on #1 `cursor/decision-docs-1503`)  
-**Date**: Nov 5, 2026
+**Branch**: `main`  
+**Last updated**: Nov 5, 2026 (post PR #2 merge, commit 4255147)
 
-## ✅ Completed - First Playable Slice
+## ✅ Completed on Main - Playable Game
 
 ### What Works
 
@@ -52,38 +51,50 @@
 - **Config**: Map size, vision radius (7 tiles), LOS blockers in `apps/server/game.js` CONFIG
 - **Asset system**: `apps/web/assets.js` - structured for easy sprite sheet drop-in
 
-## 🎨 Art Integration - Next
+## 🎨 Art Integration - System Ready
 
-### What's Ready
+### Current State
 
-The asset rendering system in `apps/web/assets.js` is structured to accept:
-- Character sheets (Red, Bot, recolor mask) with animation frames
-- Tile atlas with autotile walls
-- FX and props (flags, respawn effects, etc.)
-- All rendering goes through config for easy path swapping
+The asset rendering system is complete with graceful fallback:
+- Atlas loading system (`apps/web/atlas.js`) loads `atlas.json` and sprite sheets
+- All rendering goes through atlas with fallback to emoji/shapes when images missing
+- Character animations (idle, run, carrying, dizzy, respawn) working
+- Wall autotile with 4-bit bitmask working
+- Animated flags and base rendering working
+- FX system (respawn, hit effects) ready
 
-### When Art Pack Arrives
+### Next
 
-1. Drop files into `apps/web/assets/`
-2. Update paths in `assets.js` CONFIG
-3. Wire atlas.json frame lookups
-4. Replace placeholder shapes with sprite rendering
+- Drop final art PNGs into `apps/web/assets/` when ready
+- System automatically loads sprites when present, falls back to placeholders otherwise
+- See `docs/ART_INTEGRATION.md` for complete specs
 
-This is a **separate follow-up PR** to keep this one shippable.
+## 🌫️ Fog of War - Planned (Not Built)
 
-## 🌫️ Fog of War - Future PR
-
-### Already Prepared
+### Config Ready
 
 - Vision radius: 7 tiles (in CONFIG)
 - LOS blockers: walls and bushes (in CONFIG.visionBlockers)
 - State broadcast structure supports per-client filtering
 
-### What's Needed
+### Implementation Needed
 
 1. Server-side visibility computation (line-of-sight from player)
 2. Filter `state` message per client (only send visible entities)
 3. Client-side fog overlay (darken unseen tiles)
+
+**Status**: Config in place, implementation not started.
+
+## 🎁 Mystery-Box Powerups - Planned (Not Built)
+
+**Status**: Config hooks exist in game.js, but powerups are not implemented. This is the next slice after fog of war.
+
+Planned effects (not implemented):
+- Speed boost
+- Shield/invulnerability
+- Other power-ups TBD
+
+**Status**: Not started. Do not document wire protocol fields until code exists.
 
 ## 🚀 How to Test Now
 
@@ -126,5 +137,6 @@ node apps/bot/bot.js wss://<your-hostname>/ws BotA
 
 ---
 
-**Status**: ✅ Ready to merge and play!  
-**Demo-able**: Yes - spin up server, open 2 tabs, run a bot, play to 3 captures
+**Status**: ✅ Merged to main and playable!  
+**Demo**: Spin up server, open 2+ tabs, run bots, play to 3 captures  
+**Next priorities**: Fog of war, mystery-box powerups, Grok Bot LLM integration

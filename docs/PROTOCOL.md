@@ -1,6 +1,6 @@
 # WebSocket Protocol
 
-Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
+Flag Raid uses a JSON message protocol over WebSocket at `/ws`. The server is authoritative and runs at 20 Hz (50ms tick rate).
 
 ## Client → Server
 
@@ -23,8 +23,8 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "dy": 0
 }
 ```
-- `dx`, `dy`: normalized direction vector (e.g. -1, 0, 1)
-- Server applies movement on next tick
+- `dx`, `dy`: direction vector components (typically -1, 0, or 1, but can be fractional from joystick)
+- Server normalizes and applies movement on next tick at configured player speed (3.0 tiles/second)
 
 ### ping
 ```json
@@ -44,29 +44,30 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "heartbeatMs": 20000
 }
 ```
-- Sent immediately on connection
+- Sent immediately on WebSocket connection
 
 ### welcome
 ```json
 {
   "type": "welcome",
-  "playerId": "uuid",
+  "playerId": "abc123def456",
   "team": "red",
   "map": {
-    "width": 40,
-    "height": 30,
+    "width": 64,
+    "height": 40,
     "seed": 12345,
     "tiles": [[0,1,2,...], ...],
     "bases": {
-      "red": {"x": 1, "y": 1},
-      "bot": {"x": 38, "y": 28}
+      "red": {"x": 2, "y": 2},
+      "bot": {"x": 61, "y": 37}
     }
   }
 }
 ```
-- `team`: `"red"` (humans) or `"bot"`
-- `tiles`: 2D array, tile codes: `0` floor, `1` wall, `2` crate, `3` bush
-- `bases`: center of base pads (each 2x2 tiles)
+- `team`: `"red"` (humans, top-left) or `"bot"` (bots, bottom-right)
+- `tiles`: 2D array [height][width], tile codes: `0` floor, `1` wall, `2` crate, `3` bush
+- `bases`: center of 2×2 base areas at opposite diagonal corners
+- Map is always 64×40 tiles
 
 ### state
 ```json
@@ -76,7 +77,7 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "phase": "playing",
   "players": [
     {
-      "id": "uuid",
+      "id": "abc123def456",
       "name": "Alice",
       "team": "red",
       "kind": "human",
@@ -88,27 +89,30 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
     }
   ],
   "flags": {
-    "red": {"x": 1, "y": 1, "carrier": null},
-    "bot": {"x": 38, "y": 28, "carrier": "uuid-or-null"}
+    "red": {"x": 2.0, "y": 2.0, "carrier": null},
+    "bot": {"x": 61.0, "y": 37.0, "carrier": "abc123def456"}
   },
   "score": {"red": 1, "bot": 0}
 }
 ```
-- `phase`: `"waiting"` (< 1 human), `"playing"`, `"ended"`
-- `dir`: `"down"`, `"left"`, `"right"`, `"up"`
-- `state`: `"idle"`, `"running"`, `"carrying"`, `"tagged"`, `"respawn"`
-- Broadcast ~20 Hz during match
+- `phase`: `"waiting"` (no humans connected), `"playing"`, or `"ended"` (match over, new map pending)
+- `dir`: `"down"`, `"left"`, `"right"`, or `"up"`
+- `state`: `"idle"` (stationary), `"running"` (moving), `"carrying"` (has flag), `"tagged"` (defeated, waiting to respawn), or `"respawn"` (brief invulnerability after respawn)
+- `x`, `y`: rounded to 2 decimal places (tile coordinates)
+- Broadcast at 20 Hz (every 50ms) during `playing` or `waiting` phase
+- Each team has one flag; `carrier` is the player ID holding it, or `null` if at base
 
 ### scored
 ```json
 {
   "type": "scored",
   "team": "red",
-  "carrier": "uuid",
+  "carrier": "abc123def456",
   "score": {"red": 2, "bot": 0}
 }
 ```
-- Sent when a team scores (first to 3 wins)
+- Sent when a flag is captured (carrier brings enemy flag to their own base)
+- First to 3 wins
 
 ### matchEnd
 ```json
@@ -118,26 +122,27 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "finalScore": {"red": 3, "bot": 1}
 }
 ```
-- Match ends; new match starts after 5 seconds
+- Match ends; server waits 5 seconds (`matchEndDelayMs`), then resets with new map
 
 ### newMap
 ```json
 {
   "type": "newMap",
   "map": {
-    "width": 40,
-    "height": 30,
+    "width": 64,
+    "height": 40,
     "seed": 67890,
     "tiles": [[0,1,2,...], ...],
     "bases": {
       "red": {"x": 2, "y": 2},
-      "bot": {"x": 37, "y": 27}
+      "bot": {"x": 61, "y": 37}
     }
   }
 }
 ```
-- Sent to all connected clients when a new round starts
-- Each round uses a fresh procedurally generated map
+- Sent to all connected clients when a new round starts after match end
+- Fresh procedurally generated map with new seed
+- Bases always at (2, 2) for Red and (width-3, height-3) for Bot
 
 ### pong
 ```json
@@ -145,6 +150,7 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "type": "pong"
 }
 ```
+- Response to client `ping`
 
 ### heartbeat
 ```json
@@ -152,12 +158,41 @@ Flag Raid uses a JSON message protocol over WebSocket at `/ws`.
   "type": "heartbeat"
 }
 ```
-- Sent every 20 seconds to keep tunnel alive
+- Sent every 20 seconds to keep connection and tunnel alive
 
-## Rules (Server-Authoritative)
+## Game Rules (Server-Authoritative)
 
-1. Touch enemy flag to pick up
-2. Bring enemy flag to your base to score
-3. Tag enemy carrier in your half to return their flag
-4. First to 3 captures wins
-5. New match on new map seed after win
+1. **Teams**: Red (humans, top-left base) vs Bot (bots, bottom-right base)
+2. **Flags**: Each team has one flag at their base. Touch enemy flag within pickup radius (0.7 tiles) to pick up.
+3. **Capture**: Bring enemy flag to your own base (within pickup radius) to score 1 point.
+4. **Tag**: In your own half of the map, get within tag radius (0.8 tiles) of an enemy flag carrier to tag them. Tagged carrier drops flag, which returns to enemy base.
+5. **Respawn**: Tagged players wait 2000ms, then respawn at their base with 500ms invulnerability.
+6. **Win**: First to 3 captures wins. After 5 second delay, new round starts with fresh map.
+7. **Tick rate**: Server runs at 20 Hz. Player speed is 3.0 tiles/second.
+
+## Game Configuration (Server Constants)
+
+From `apps/server/game.js` CONFIG:
+
+- `tileSize`: 32px (rendering)
+- `mapWidth`: 64, `mapHeight`: 40
+- `playerSpeed`: 3.0 tiles/second
+- `playerRadius`: 0.4 tiles (collision)
+- `flagPickupRadius`: 0.7 tiles
+- `tagRadius`: 0.8 tiles
+- `respawnTimeMs`: 2000 (tagged state duration)
+- `tickRate`: 20 Hz
+- `winScore`: 3 captures
+- `matchEndDelayMs`: 5000 (delay before new map)
+- `visionRadius`: 7 tiles (for future fog of war)
+- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight)
+
+## Map Generation
+
+- Always 64×40 tiles
+- Tile types: 0=FLOOR, 1=WALL (blocks movement and vision), 2=CRATE (blocks movement), 3=BUSH (walkable, blocks vision)
+- Bases at opposite diagonal corners (Red top-left, Bot bottom-right) in 4×4 clear zones
+- Random obstacles: ~8% walls, ~4% crates, ~6% bushes (avoiding base zones)
+- Connectivity validated via flood fill between bases
+- Minimum 40 obstacles with variety (walls, crates, bushes) enforced
+- Failed maps regenerate with incremented seed until valid

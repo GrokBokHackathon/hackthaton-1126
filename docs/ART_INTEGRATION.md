@@ -1,8 +1,8 @@
-# Art Integration Status
+# Art Integration Guide
 
-## Current State: Atlas System Wired ✅
+## Current State: Atlas System Fully Implemented ✅
 
-The rendering system is fully atlas-driven with graceful fallback to emoji/shapes.
+The rendering system on `main` is fully atlas-driven with graceful fallback to emoji/shapes.
 
 ### What's Implemented
 
@@ -129,4 +129,4 @@ When art pack arrives:
 4. If any frames missing, check console warnings
 5. Update paths in ASSET_CONFIG for final art
 
-Ready to ship! 🎨
+System shipped and working on `main`! 🎨

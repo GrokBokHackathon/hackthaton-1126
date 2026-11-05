@@ -46,9 +46,9 @@ Each player runs their own client against the published tunnel URL. Full JSON pr
 
 ## 7. Mystery-box powerups
 
-**Planned — next slice after the live match exists.** Not started. Do not document wire fields for boxes until code exists.
+**Planned — not implemented.** Next slice after fog of war. Do not document wire protocol fields for powerups until code exists.
 
-Config hooks exist in game.js; powerups not implemented yet.
+Config hooks exist in `apps/server/game.js`; powerups are not implemented yet.
 
 ## 8. Stretch — behavior trees
 
@@ -94,40 +94,52 @@ See [PROTOCOL.md](PROTOCOL.md) and [STATUS.md](STATUS.md) for implementation det
 
 ## 12. WebSocket Protocol
 
-**Implemented.** JSON message protocol over `/ws`. Client sends `join` (name, kind: human|bot), `input` (dx, dy). Server sends `welcome` (playerId, team, map), `state` (players, flags, score), `scored`, `matchEnd`, `newMap` on round reset. Documented in [PROTOCOL.md](PROTOCOL.md).
+**Implemented on `main`.** JSON message protocol over `/ws`. Client sends `join` (name, kind: human|bot), `input` (dx, dy), optional `ping`. Server sends `hello`, `welcome` (playerId, team, map), `state` (players, flags, score at 20 Hz), `scored`, `matchEnd`, `newMap` on round reset, `heartbeat` (every 20s), `pong`. Fully documented in [PROTOCOL.md](PROTOCOL.md).
 
 ## 13. Game Rules
 
-**Implemented.** Server-authoritative at ~20 Hz:
-- Exactly 2 teams: Red humans (top-left base) vs Bot team (bottom-right base)
-- Touch enemy flag to pick up, bring to your base to score
-- Tag enemy carrier in your half to return their flag
-- Tagged players respawn at base after 2 seconds
+**Implemented on `main`.** Server-authoritative at 20 Hz:
+- Exactly 2 teams: Red humans (top-left base at 2,2) vs Bot team (bottom-right base at 61,37)
+- Each team has one flag at their base
+- Touch enemy flag (within 0.7 tiles) to pick up, bring to your base to score
+- Tag enemy carrier in your half (within 0.8 tiles) to return their flag
+- Tagged players respawn at base after 2 seconds (plus 500ms invulnerability)
 - First to 3 captures wins
-- New procedurally generated map each round with guaranteed connectivity and meaningful obstacles
+- New procedurally generated 64×40 map each round with guaranteed connectivity and 40+ obstacles with variety
 
 ## 14. Art and Assets
 
-**In progress.** 32×32 tiles and character frames, rendered at 2× scale (default) with nearest-neighbour filtering. Character pivot at center-bottom (16, 30). Animation timings: run 150ms, flag 250ms, respawn 80ms, hit 60ms per frame.
+**Implemented on `main`.** Atlas-driven rendering system with graceful fallback. 32×32 tiles and character frames, rendered at responsive zoom (2× default) with adaptive smoothing. Character pivot at center-bottom (16, 30). Animation timings: run 150ms, flag 250ms, respawn 80ms, hit 60ms per frame.
 
-Asset rendering goes through a single atlas/config module (`apps/web/assets.js`) for easy sprite sheet swapping. Team colors: Red #C42032 (humans), Purple #A27BFF (Bot team). Placeholder emoji/shapes until art pack is fully wired.
+Asset rendering goes through `apps/web/atlas.js` (loading) and `apps/web/assets.js` (rendering) for easy sprite sheet swapping. Team colors: Red #C42032 (humans), Purple #A27BFF (Bot team). System currently uses placeholder emoji/shapes when sprite sheets not present; works perfectly as fallback.
 
 ## 15. Responsive Design and Mobile
 
-**Implemented.** Zoom calculation: `shortSidePx / (16 * 32)` so shorter screen side always shows 16 tiles.
+**Implemented on `main`.** Zoom calculation: `shortSidePx / (16 * 32)` so shorter screen side always shows 16 tiles.
 - Zoom ≥2: whole-number scale with nearest-neighbour (pixel-perfect)
 - Zoom <2: fractional scale with smoothing
 - Camera follows local player, clamped to map edges
 - On-screen joystick for touch devices
 - HUD in screen space, handles resize and orientation changes
+- Works on desktop (WASD/arrows) and mobile (touch joystick)
 
-## 16. Fog of War Preparation
+## 16. Fog of War
 
-**Prepared, not implemented.** Vision radius (7 tiles) and line-of-sight blockers (walls, bushes) are in `CONFIG`. State broadcast structure supports per-client filtering. Implementation is a future PR: server-side visibility computation + per-client state filtering + client fog overlay.
+**Planned, not implemented.** Vision radius (7 tiles) and line-of-sight blockers (walls, bushes) are in `CONFIG` on `main`. State broadcast structure supports per-client filtering. Implementation planned: server-side visibility computation + per-client state filtering + client fog overlay.
 
-## Answered Questions
+## Answered Questions (Closed by Implementation on `main`)
 
-1. **Team sizes:** Fully dynamic n humans vs m bots. Humans join Red, bots join Bot team.
-2. **Flags:** One flag per side. Capture rule: bring enemy flag to your base to score.
-3. **Movement model:** Server-authoritative at 20 Hz tick rate, client sends normalized input vectors.
-4. **Mystery-box effects:** Planned for next slice (speed, shield, etc.)
+1. **Team sizes:** Fully dynamic n humans vs m bots. Humans join Red team, bots join Bot team. Server assigns teams automatically.
+2. **Flags:** Two flags (one per side). Each team defends their own flag and attempts to capture the enemy flag. Capture rule: bring enemy flag to your base to score.
+3. **Movement model:** Server-authoritative at 20 Hz tick rate (50ms intervals). Client sends input vectors (dx, dy). Server normalizes and applies movement at 3.0 tiles/second.
+4. **Map size:** 64×40 tiles, procedurally generated each round with guaranteed connectivity.
+5. **Base positions:** Red at (2,2) top-left, Bot at (61,37) bottom-right (opposite diagonal corners).
+6. **Player states:** idle, running, carrying, tagged, respawn (with 500ms invulnerability).
+7. **Collision and interaction radii:** playerRadius 0.4, flagPickupRadius 0.7, tagRadius 0.8 tiles.
+
+## Open Questions (Not Yet Implemented)
+
+1. **Mystery-box powerup effects:** Speed, shield, etc. — planned but not built. Design TBD.
+2. **Fog of war visibility calculation:** Line-of-sight algorithm choice and per-client filtering strategy.
+3. **Grok Bot LLM integration:** Decision-making frequency, prompt structure, fallback behavior.
+4. **Behavior-tree rewrites (stretch):** JSON schema, edit safety, in-match vs between-match timing.

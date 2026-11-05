@@ -55,7 +55,8 @@ The client works on phone and desktop with responsive zoom:
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | WebSocket JSON game protocol (join, input, state, scored, matchEnd, newMap) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
 | [docs/STATUS.md](docs/STATUS.md) | Current implementation status and roadmap |
-| [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative discussion proposal only (two patrons, six AI heroes). Not the baseline, not implemented. |
+| [docs/ART_INTEGRATION.md](docs/ART_INTEGRATION.md) | Atlas rendering system, sprite specs, graceful fallback |
+| [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative patron-and-heroes proposal (discussion only, not implemented) |
 
 ## Verified deployment
 
@@ -146,10 +147,10 @@ npm test --prefix apps/server
 
 ## Next steps
 
-1. Wire in the placeholder art pack (atlas.json, sprite sheets) — **in progress**
-2. Add fog of war (server-computed, per-client state filtering)
-3. **Mystery-box powerups**: speed, shield, etc.
-4. Let Grok Bots join and replace simple AI with LLM decision-making
+1. **Fog of war** (server-computed, per-client state filtering) — planned, config ready
+2. **Mystery-box powerups**: speed, shield, etc. — planned
+3. Final art pack (sprite sheets) — rendering system ready, placeholders working
+4. Grok Bot LLM decision-making to replace simple AI
 5. Stretch: behavior-tree rewrites — see [docs/DECISIONS.md](docs/DECISIONS.md)
 
 ## Contributing
