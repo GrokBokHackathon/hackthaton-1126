@@ -265,7 +265,15 @@ Public, to every commander in the room. No resume token:
   "seats": [
     { "seat": 1, "team": "red", "filled": true, "connected": true },
     { "seat": 2, "team": "bot", "filled": false, "connected": false }
-  ]
+  ],
+  "mapSeed": 12345,
+  "map": {
+    "width": 64,
+    "height": 40,
+    "seed": 12345,
+    "tiles": [[0,1,2,3], "..."],
+    "bases": { "red": {"x": 2, "y": 2}, "bot": {"x": 61, "y": 37} }
+  }
 }
 ```
 
@@ -286,7 +294,15 @@ Private unicast to the socket that just created, joined, or resumed. This is the
   "seat": 1,
   "team": "red",
   "resumeToken": "secret",
-  "started": false
+  "started": true,
+  "mapSeed": 12345,
+  "map": {
+    "width": 64,
+    "height": 40,
+    "seed": 12345,
+    "tiles": [[0,1,2,3], "..."],
+    "bases": { "red": {"x": 2, "y": 2}, "bot": {"x": 61, "y": 37} }
+  }
 }
 ```
 
@@ -294,7 +310,9 @@ Private unicast to the socket that just created, joined, or resumed. This is the
 
 `createRoom(connectionId, now)`, `joinRoom(roomId, connectionId, resumeToken, now)`, and `disconnect(connectionId, now)` return `{ ok, error, roomId, seat, team, resumeToken?, started, events }`. `snapshot(roomId)` is the public board and has no token. `events` are `room_state` or `room_error` only.
 
-`started` is true only on the call that fills the second seat. The core then creates one Match for that `roomId` and admits those two commanders, with no human body. Later resumes return `started: false`.
+`started` is true only on the call that fills the second seat. That call activates the room Match. Later resumes return `started: false`.
+
+`map` is the same object as legacy `welcome.map`: `width`, `height`, `seed`, `tiles`, `bases`. It is present on `room_welcome` and on `room_state` once that room's Match exists (create, join, start, and resume). It is not fog and it does not include `resumeToken`. `newMap` is sent only to that room after a round reset, with the new `map`.
 
 ### Seat rules
 

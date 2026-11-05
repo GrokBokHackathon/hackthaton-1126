@@ -16,6 +16,7 @@ export function shouldBroadcastState(phase) {
 
 export function createLobbyRouter({
   createMatch,
+  onStarted,
   onNewMap,
   visionRadius,
   visionBlockers,
@@ -44,16 +45,36 @@ export function createLobbyRouter({
     return match;
   }
 
+  function authoritativeMap(match) {
+    if (!match || typeof match.getMapData !== "function") return null;
+    return match.getMapData();
+  }
+
+  function withRoomMap(message, match) {
+    const next = { ...message };
+    const map = authoritativeMap(match);
+    if (!map) return next;
+    next.map = map;
+    next.mapSeed = map.seed;
+    return next;
+  }
+
+  function publicRoomState(message, match) {
+    const next = withRoomMap(message, match);
+    delete next.resumeToken;
+    return next;
+  }
+
   function deliver(connectionId, ws, result) {
     if (result.ok) {
-      if (result.started) ensureMatch(result.roomId);
+      const match = ensureMatch(result.roomId);
+      if (result.started && onStarted) onStarted(match);
       sessions.set(connectionId, {
         ws,
         roomId: result.roomId,
         team: result.team,
         seat: result.seat,
       });
-      const match = roomMatch(result.roomId);
       const welcome = {
         type: "room_welcome",
         ok: true,
@@ -64,18 +85,14 @@ export function createLobbyRouter({
         resumeToken: result.resumeToken,
         started: result.started,
       };
-      if (match) welcome.mapSeed = match.map.seed;
-      send(ws, welcome);
+      send(ws, withRoomMap(welcome, match));
     } else {
       send(ws, { type: "room_error", error: result.error, roomId: result.roomId });
     }
 
     for (const event of result.events) {
       if (event.type !== "room_state") continue;
-      const match = roomMatch(event.roomId);
-      const message = { ...event };
-      delete message.resumeToken;
-      if (match) message.mapSeed = match.map.seed;
+      const message = publicRoomState(event, roomMatch(event.roomId));
       for (const entry of sessions.values()) {
         if (entry.roomId === event.roomId) send(entry.ws, message);
       }
@@ -137,9 +154,7 @@ export function createLobbyRouter({
       if (match && snap && !seatsHeld) match.releaseCommanderRoom();
       for (const event of result.events) {
         if (event.type !== "room_state") continue;
-        const message = { ...event };
-        delete message.resumeToken;
-        if (match) message.mapSeed = match.map.seed;
+        const message = publicRoomState(event, match);
         for (const entry of sessions.values()) {
           if (entry.roomId === event.roomId) send(entry.ws, message);
         }
