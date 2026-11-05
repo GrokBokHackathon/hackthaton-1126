@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { spawnSquad } from "./autopilot.js";
 import { Match } from "./game.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +106,8 @@ const server = http.createServer((req, res) => {
 
 // Game state
 const match = new Match();
+const botsPerTeam = Number(process.env.BOTS_PER_TEAM ?? 3);
+spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
 const clients = new Map(); // playerId -> ws
 
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -204,6 +207,7 @@ setInterval(() => {
   // Broadcast events
   for (const event of events) {
     broadcast(event);
+    if (event.type === "newMap") spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
   }
 
   // Broadcast state
