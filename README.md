@@ -6,7 +6,7 @@ This repository is the source of truth. Product choices are in [docs/DECISIONS.m
 
 ## Verified deployment
 
-Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. The stack runs there with Podman via `docker-compose`. This build is a mock connectivity scaffold, not a playable Capture the Flag match yet.
+Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. Wiktor owns hosting: the server and clients run on that laptop with Podman via `docker-compose`, then Cloudflare Tunnel. Do not run this stack on a bot or cloud-agent machine. This build is a mock connectivity scaffold, not a playable Capture the Flag match yet.
 
 - Local server: <http://127.0.0.1:8080>
 - Local web stub: <http://127.0.0.1:3000>
@@ -94,8 +94,12 @@ npm test --prefix apps/server
 
 ## Contributing
 
-- English only in this repo: docs, commits, issues, and in-repo copy.
-- Shared work. Invent features as we go and commit often so the other person can continue.
+This repository is the only place Wiktor, Greg, and their bots coordinate. Greg has his own separate Grok Bots. Write decisions and handoffs here, in English, so every collaborator can see them.
+
+Wiktor owns hosting. The server and clients stay on his laptop (Podman and Cloudflare Tunnel). Do not deploy them onto a bot or cloud-agent computer.
+
+- English only: docs, commits, issues, and in-repo copy.
+- Invent features as we go and commit often.
 - Never commit secrets, tokens, API keys, tunnel tokens, credentials, or env values.
 
 ## Next steps
