@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flag Raid - Humans vs Grok Bots CTF</title>
     <meta name="description" content="Silly realtime multiplayer Capture the Flag: humans versus Grok Bots on a 2D top-down map. Party chaos meets emoji warfare." />
+    <meta property="og:image" content="assets/marketing/01_hero_social.png" />
+    <meta name="twitter:image" content="assets/marketing/01_hero_social.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <style>
       :root {
         --red-human: #C42032;
@@ -864,7 +867,8 @@
         background: linear-gradient(135deg, rgba(162, 123, 255, 0.2), rgba(196, 32, 50, 0.2));
       }
       
-      .gallery-item img {
+      .gallery-item img,
+      .gallery-item video {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -888,7 +892,8 @@
         background: linear-gradient(135deg, rgba(162, 123, 255, 0.25), rgba(196, 32, 50, 0.25));
       }
 
-      .gallery-item:hover img {
+      .gallery-item:hover img,
+      .gallery-item:hover video {
         transform: scale(1.08);
         filter: brightness(1.1) contrast(1.15) saturate(1.2);
       }
@@ -1066,31 +1071,40 @@
           </div>
         </div>
         
-        <!-- Optional video placeholder for future promo loop -->
-        <!-- <div class="promo-video-container">
-          <video autoplay loop muted playsinline class="promo-video">
+        <div class="promo-video-container">
+          <video autoplay loop muted playsinline class="promo-video" poster="assets/marketing/01_hero.png">
+            <source src="assets/marketing/promo.webm" type="video/webm">
             <source src="assets/marketing/promo.mp4" type="video/mp4">
           </video>
-        </div> -->
+        </div>
         
         <div class="promo-gallery">
           <div class="gallery-grid">
             <div class="gallery-item gallery-item-large animate-on-scroll">
               <div class="gallery-item-inner">
-                <img src="assets/marketing/promo-chase.jpg" alt="Flag chase action" loading="lazy">
+                <video autoplay loop muted playsinline poster="assets/marketing/03_flag_steal.png" style="width:100%;height:100%;object-fit:cover;display:block;">
+                  <source src="assets/marketing/card_chase.webm" type="video/webm">
+                  <source src="assets/marketing/card_chase.mp4" type="video/mp4">
+                </video>
                 <div class="gallery-caption">🏃 Flag Chase</div>
               </div>
             </div>
             <div class="gallery-item animate-on-scroll">
               <div class="gallery-item-inner">
-                <img src="assets/marketing/promo-tag.jpg" alt="Tag and steal moment" loading="lazy">
+                <video autoplay loop muted playsinline poster="assets/marketing/04_tag.png" style="width:100%;height:100%;object-fit:cover;display:block;">
+                  <source src="assets/marketing/card_tag.webm" type="video/webm">
+                  <source src="assets/marketing/card_tag.mp4" type="video/mp4">
+                </video>
                 <div class="gallery-caption">💥 Tag Steal</div>
               </div>
             </div>
             <div class="gallery-item animate-on-scroll">
               <div class="gallery-item-inner">
-                <img src="assets/marketing/promo-bots.jpg" alt="Humans vs Bots chaos" loading="lazy">
-                <div class="gallery-caption">🤖 Bot Chaos</div>
+                <video autoplay loop muted playsinline poster="assets/marketing/05_beer_rush.png" style="width:100%;height:100%;object-fit:cover;display:block;">
+                  <source src="assets/marketing/card_party.webm" type="video/webm">
+                  <source src="assets/marketing/card_party.mp4" type="video/mp4">
+                </video>
+                <div class="gallery-caption">🎉 Party Mode</div>
               </div>
             </div>
           </div>
