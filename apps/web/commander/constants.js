@@ -4,7 +4,7 @@
  * This module does not import assets.js or spriteLoader.js (those load images).
  */
 
-export const HANDOFF_VERSION = "2026-11-05.1";
+export const HANDOFF_VERSION = "2026-11-05.2";
 
 export const TILE_SIZE = 32;
 export const FRAME_SIZE = 32;
