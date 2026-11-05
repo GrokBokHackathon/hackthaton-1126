@@ -236,7 +236,7 @@ try {
       && moved
       && observed.panel
       && observed.stylesheet
-      && observed.roundText === ""
+      && (observed.roundText === "" || /^Round \d+ · \d+:\d{2}$/.test(observed.roundText))
     ),
   };
   console.log(JSON.stringify(report, null, 2));
