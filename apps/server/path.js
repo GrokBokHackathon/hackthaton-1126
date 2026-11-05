@@ -1,10 +1,23 @@
 // Tile pathfinding for autopilot. Coordinates are tile indexes.
-// 0 floor and 3 bush are walkable. 1 wall and 2 crate are not.
+// 0 floor, 3 bush, and 4 tree are walkable. 1 wall and 2 crate are not.
+// Trees (4) slow movement but do not block pathfinding.
 
 export function isWalkable(tiles, x, y) {
   if (!tiles.length || y < 0 || x < 0 || y >= tiles.length || x >= tiles[0].length) return false;
   const tile = tiles[y][x];
+  // Walls (1) and crates (2) block movement
+  // Floor (0), bush (3), and tree (4) are walkable
   return tile !== 1 && tile !== 2;
+}
+
+// Get movement cost multiplier for a tile (higher cost = slower movement)
+// Trees have higher cost to reflect speed reduction
+function getTileCost(tiles, x, y) {
+  if (!tiles.length || y < 0 || x < 0 || y >= tiles.length || x >= tiles[0].length) return 1;
+  const tile = tiles[y][x];
+  // Tree tiles have 2x cost (reflecting 0.5x speed = 2x time to traverse)
+  if (tile === 4) return 2;
+  return 1;
 }
 
 export function nearestWalkable(tiles, x, y) {
@@ -97,7 +110,9 @@ export function planPath(tiles, start, goal, options = {}) {
       const ny = current.y + dy;
       if (!isWalkable(tiles, nx, ny)) continue;
       const nextKey = keyOf(nx, ny);
-      const tentative = gScore.get(currentKey) + 1 + penalty(nx, ny);
+      // Include tile cost (trees = 2x, normal = 1x) plus avoidance penalty
+      const tileCost = getTileCost(tiles, nx, ny);
+      const tentative = gScore.get(currentKey) + tileCost + penalty(nx, ny);
       if (tentative >= (gScore.get(nextKey) ?? Infinity)) continue;
       came.set(nextKey, current);
       gScore.set(nextKey, tentative);

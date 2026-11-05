@@ -466,6 +466,237 @@ test("stylesheet is linked beside the module and does not import the game", () =
   assert.match(css, /:focus-visible/);
 });
 
+test("a false send does not enter pending and the next view still applies", () => {
+  let open = false;
+  const session = createCommandSession({
+    onCommand() {
+      return open ? true : false;
+    },
+  });
+  session.update({
+    nextSeq: 1,
+    units: [{ id: "auto-red-0", selectable: true }],
+    capabilities: { orders: [{ id: "rally", enabled: true, cost: 1 }] },
+  });
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  const failed = session.setTarget({ x: 6, y: 2 });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.error, "transport_failed");
+  assert.equal(failed.local, true);
+  assert.notEqual(session.getViewModel().step, "pending");
+  assert.equal(session.getViewModel().emote.active, false);
+  session.update({
+    nextSeq: 1,
+    budget: { current: 6, cap: 10 },
+    capabilities: {
+      orders: [
+        { id: "rally", enabled: true, cost: 1 },
+        { id: "beer", enabled: true, cost: 8 },
+      ],
+    },
+  });
+  assert.notEqual(session.getViewModel().step, "pending");
+  assert.equal(session.getViewModel().budget.text.includes("6"), true);
+  open = true;
+  assert.equal(session.setTarget({ x: 6, y: 2 }).ok, true);
+  assert.equal(session.getViewModel().step, "pending");
+});
+
+test("closing the socket cancels a pending command without a server result", () => {
+  const session = createCommandSession({ onCommand() { return true; } });
+  session.update({
+    nextSeq: 1,
+    budget: { current: 6, cap: 10 },
+    capabilities: { orders: [{ id: "rally", enabled: true, cost: 1 }] },
+  });
+  session.selectAll();
+  session.chooseOrder("rally");
+  assert.equal(session.setTarget({ x: 4, y: 2 }).ok, true);
+  assert.equal(session.getViewModel().step, "pending");
+  const cancelled = session.cancelPendingTransport();
+  assert.equal(cancelled.local, true);
+  assert.equal(cancelled.cancelled, true);
+  const view = session.getViewModel();
+  assert.notEqual(view.step, "pending");
+  assert.equal(view.pendingSeq, null);
+  assert.equal(view.emote.active, false);
+  assert.equal(view.commandStatus.phase, "local_cancelled");
+  assert.equal(view.commandStatus.reason, null);
+  session.update({
+    nextSeq: 2,
+    budget: { current: 6, cap: 10 },
+    orderCount: { used: 0, max: 15 },
+    capabilities: { orders: [{ id: "rally", enabled: true, cost: 1 }] },
+  });
+  const next = session.getViewModel();
+  assert.notEqual(next.step, "pending");
+  assert.equal(next.budget.text.includes("6"), true);
+  assert.equal(next.commandStatus.phase, "local_cancelled");
+});
+
+test("shell classes follow the 900px breakpoint in both directions", () => {
+  const classes = new Set();
+  const shell = {
+    clientWidth: 390,
+    clientHeight: 844,
+    classList: {
+      add(name) { classes.add(name); },
+      toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+      contains(name) { return classes.has(name); },
+    },
+  };
+  assert.equal(applyCommandPanelShell(shell, "auto"), "phone");
+  assert.equal(classes.has("cp-shell--phone"), true);
+  assert.equal(classes.has("cp-shell--desktop"), false);
+  shell.clientWidth = 1280;
+  shell.clientHeight = 800;
+  assert.equal(applyCommandPanelShell(shell, "auto"), "desktop");
+  assert.equal(classes.has("cp-shell--desktop"), true);
+  assert.equal(classes.has("cp-shell--phone"), false);
+  shell.clientWidth = 390;
+  shell.clientHeight = 844;
+  assert.equal(applyCommandPanelShell(shell, "auto"), "phone");
+  assert.equal(classes.has("cp-shell--phone"), true);
+  assert.equal(classes.has("cp-shell--desktop"), false);
+});
+
+test("roster refresh drops a removed id and does not send or enter pending", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  session.update({ units: [{ id: "auto-red-2", selectable: true }] });
+  const result = session.setTarget({ ref: "bridge" });
+  const view = session.getViewModel();
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "flow_incomplete");
+  assert.equal(sent.length, 0);
+  assert.notEqual(view.step, "pending");
+  assert.equal(view.pendingSeq, null);
+  assert.equal(view.selection.kind, "none");
+  assert.deepEqual(view.selection.unitIds, []);
+});
+
+test("roster refresh treats selectable false as no longer armed", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  session.update({ units: [{ id: "auto-red-0", selectable: false }] });
+  const result = session.setTarget({ ref: "bridge" });
+  const view = session.getViewModel();
+  assert.equal(result.ok, false);
+  assert.equal(sent.length, 0);
+  assert.notEqual(view.step, "pending");
+  assert.equal(view.selection.kind, "none");
+});
+
+test("roster refresh keeps selectable ids and drops the stale ones", () => {
+  const sent = [];
+  const session = rallySession(sent, ["auto-red-0", "auto-red-2"]);
+  session.setSelection({ unitIds: ["auto-red-0", "auto-red-2"] });
+  session.chooseOrder("rally");
+  session.update({
+    units: [
+      { id: "auto-red-0", selectable: false },
+      { id: "auto-red-2", selectable: true },
+    ],
+  });
+  const view = session.getViewModel();
+  assert.equal(view.step, "target");
+  assert.deepEqual(view.selection.unitIds, ["auto-red-2"]);
+  const result = session.setTarget({ ref: "bridge" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent[0].unitIds, ["auto-red-2"]);
+  assert.equal(sent[0].unitIds.includes("auto-red-0"), false);
+  assert.equal(session.getViewModel().step, "pending");
+});
+
+test("a roster refresh that still contains the armed id still sends it", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  session.update({
+    units: [
+      { id: "auto-red-2", selectable: true },
+      { id: "auto-red-0", selectable: true },
+    ],
+  });
+  const result = session.setTarget({ ref: "bridge" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent[0].unitIds, ["auto-red-0"]);
+  assert.equal(session.getViewModel().step, "pending");
+});
+
+test("an update that omits the roster does not drop the armed unit", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  session.update({
+    budget: { current: 6, cap: 10 },
+    capabilities: { orders: [{ id: "rally", enabled: true, cost: 1 }] },
+  });
+  assert.deepEqual(session.getViewModel().selection.unitIds, ["auto-red-0"]);
+  session.update({ units: null });
+  assert.deepEqual(session.getViewModel().selection.unitIds, ["auto-red-0"]);
+  const result = session.setTarget({ ref: "bridge" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent[0].unitIds, ["auto-red-0"]);
+  assert.equal(session.getViewModel().step, "pending");
+});
+
+test("a roster refresh does not cancel an in-flight unit command", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.setSelection({ unitIds: ["auto-red-0"] });
+  session.chooseOrder("rally");
+  assert.equal(session.setTarget({ ref: "bridge" }).ok, true);
+  session.update({ units: [{ id: "auto-red-2", selectable: true }] });
+  const view = session.getViewModel();
+  assert.equal(view.step, "pending");
+  assert.equal(view.pendingSeq, sent[0].seq);
+  assert.deepEqual(view.lastPayload.unitIds, ["auto-red-0"]);
+  assert.equal(view.selection.kind, "none");
+  assert.equal(sent.length, 1);
+});
+
+test("all stays all across a roster refresh and a pending command is not reopened", () => {
+  const sent = [];
+  const session = rallySession(sent);
+  session.selectAll();
+  session.chooseOrder("rally");
+  session.update({ units: [{ id: "auto-red-2", selectable: true }] });
+  assert.equal(session.getViewModel().selection.kind, "all");
+  const result = session.setTarget({ ref: "bridge" });
+  assert.equal(result.ok, true);
+  assert.equal(sent[0].all, true);
+  assert.equal("unitIds" in sent[0], false);
+  assert.equal(session.getViewModel().step, "pending");
+  session.update({ units: [{ id: "auto-red-9", selectable: true }] });
+  const view = session.getViewModel();
+  assert.equal(view.step, "pending");
+  assert.equal(view.pendingSeq, sent[0].seq);
+  assert.equal(view.lastPayload.all, true);
+  assert.equal(sent.length, 1);
+});
+
+function rallySession(sent, unitIds = ["auto-red-0"]) {
+  const session = createCommandSession({
+    onCommand(payload) {
+      sent.push(payload);
+      return true;
+    },
+  });
+  session.update({
+    units: unitIds.map((id) => ({ id, selectable: true })),
+    capabilities: { orders: [{ id: "rally", enabled: true }] },
+  });
+  return session;
+}
+
 function readySession() {
   const session = createCommandSession({ onCommand() {} });
   session.update({

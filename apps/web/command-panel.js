@@ -385,6 +385,12 @@ export function createCommandSession({ onCommand } = {}) {
       setNotice("assertive", text);
       return { ok: false, error: "order_not_enabled" };
     }
+    const armed = selectionForCommand();
+    if (!armed.ok) {
+      disarmInvalidSelection();
+      return armed;
+    }
+    selection = armed.selection;
     if (typeof onCommand !== "function") {
       setNotice("assertive", "Command handler is not attached. Nothing was sent.");
       return { ok: false, error: "handler_missing" };
@@ -404,11 +410,16 @@ export function createCommandSession({ onCommand } = {}) {
       setNotice("assertive", "Command could not be built.");
       return built;
     }
+    let delivery;
     try {
-      onCommand(built.payload);
+      delivery = onCommand(built.payload);
     } catch {
       setNotice("assertive", "Command was not delivered.");
-      return { ok: false, error: "handler_threw" };
+      return { ok: false, error: "handler_threw", local: true };
+    }
+    if (delivery === false || (delivery && delivery.sent === false)) {
+      setNotice("assertive", "Command was not delivered.");
+      return { ok: false, error: "transport_failed", local: true };
     }
     lastPayload = built.payload;
     pendingSeq = seq;
@@ -497,6 +508,55 @@ export function createCommandSession({ onCommand } = {}) {
     }
   }
 
+  function rosterIds(unitIds) {
+    if (units.status !== "supplied") return null;
+    const allowed = new Set();
+    for (const unit of units.list) {
+      if (unit.selectable !== false) allowed.add(unit.id);
+    }
+    return unitIds.filter((id) => allowed.has(id));
+  }
+
+  function disarmInvalidSelection() {
+    selection = { kind: "none", unitIds: [] };
+    if (step === "pending") return;
+    orderId = null;
+    cursor = "default";
+    targetRejection = null;
+    emote = { active: false, frame: "emote_broke", text: "" };
+    step = "select";
+    setNotice("assertive", "Selection is no longer on the server roster.");
+  }
+
+  function reconcileArmedSelection() {
+    if (selection.kind !== "units") return;
+    const kept = rosterIds(selection.unitIds);
+    if (kept == null) return;
+    const unchanged =
+      kept.length === selection.unitIds.length &&
+      kept.every((id, index) => id === selection.unitIds[index]);
+    if (unchanged) return;
+    if (kept.length === 0) {
+      disarmInvalidSelection();
+      return;
+    }
+    selection = { kind: "units", unitIds: kept };
+    if (step !== "pending") {
+      setNotice("polite", `${kept.join(", ")} still selected.`);
+    }
+  }
+
+  function selectionForCommand() {
+    if (selection.kind === "all") return { ok: true, selection };
+    if (selection.kind !== "units" || selection.unitIds.length === 0) {
+      return { ok: false, error: "selection_unavailable" };
+    }
+    const kept = rosterIds(selection.unitIds);
+    if (kept == null) return { ok: true, selection };
+    if (kept.length === 0) return { ok: false, error: "selection_unavailable" };
+    return { ok: true, selection: { kind: "units", unitIds: kept } };
+  }
+
   function revalidateOrder() {
     if (destroyed || step === "pending" || !orderId) return;
     const order = findOrder(orderId);
@@ -515,7 +575,10 @@ export function createCommandSession({ onCommand } = {}) {
       if (!patch || typeof patch !== "object") {
         return { ok: false, error: "invalid_patch" };
       }
-      if ("units" in patch) units = normalizeUnits(patch.units);
+      if ("units" in patch) {
+        units = normalizeUnits(patch.units);
+        reconcileArmedSelection();
+      }
       if ("budget" in patch) budget = normalizePair(patch.budget, "current", "cap");
       if ("orderCount" in patch) {
         orderCount = normalizePair(patch.orderCount, "used", "max");
@@ -554,6 +617,23 @@ export function createCommandSession({ onCommand } = {}) {
       return { ok: true };
     },
     getViewModel,
+    cancelPendingTransport() {
+      if (destroyed) return dead();
+      const wasPending = step === "pending" || pendingSeq != null;
+      pendingSeq = null;
+      commandStatus = {
+        phase: "local_cancelled",
+        seq: null,
+        reason: null,
+        text: "Command was not sent. The connection closed.",
+      };
+      if (wasPending) {
+        step = orderId ? "target" : selection.kind === "none" ? "select" : "order";
+        cursor = orderId ? "target" : "default";
+        setNotice("assertive", "Command was not sent. The connection closed.");
+      }
+      return { ok: true, cancelled: wasPending, local: true };
+    },
   };
 }
 
@@ -790,6 +870,11 @@ export function mountCommandPanel(container, options = {}) {
     },
     getLayout() {
       return layoutMode;
+    },
+    cancelPendingTransport() {
+      const result = session.cancelPendingTransport();
+      render();
+      return result;
     },
     root,
   };

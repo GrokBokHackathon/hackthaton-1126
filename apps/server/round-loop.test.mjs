@@ -113,3 +113,29 @@ test("a lead at 6:00 wins and a tie goes to sudden death", () => {
   assert.equal(tied.winner, "red");
   assert.equal(won.find((event) => event.type === "matchEnd").winReason, "sudden_death");
 });
+
+test("clientStateFor broadcasts phase, winner, and remainingMs in results and sudden_death", () => {
+  const match = new Match();
+  const player = match.addPlayer("p1", "Ada", "human");
+  
+  scoreThree(match, player);
+  assert.equal(match.phase, "results");
+  
+  const resultState = match.clientStateFor("red");
+  assert.equal(resultState.phase, "results");
+  assert.equal(resultState.winner, "red");
+  assert.equal(resultState.winReason, "captures");
+  assert.equal(resultState.roundId, 1);
+  assert.ok(resultState.remainingMs > 0);
+  
+  const tied = new Match();
+  const scorer = tied.addPlayer("p2", "Bob", "human");
+  tied.nowMs = tied.lifecycle.snapshot().roundEndsAtMs;
+  tied.tick(0);
+  assert.equal(tied.phase, "sudden_death");
+  
+  const suddenDeathState = tied.clientStateFor("red");
+  assert.equal(suddenDeathState.phase, "sudden_death");
+  assert.equal(suddenDeathState.remainingMs, null);
+  assert.equal(suddenDeathState.roundId, 1);
+});

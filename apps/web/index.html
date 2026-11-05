@@ -183,6 +183,8 @@
       
       .title-container {
         margin-bottom: 2rem;
+        overflow: visible;
+        padding: 0.5rem 0;
       }
       
       .title-small {
@@ -199,14 +201,17 @@
         font-weight: 900;
         margin-bottom: 1rem;
         letter-spacing: -0.03em;
-        line-height: 0.9;
+        line-height: 1.1;
         position: relative;
         display: inline-block;
+        overflow: visible;
       }
       
       .title-word {
         display: inline-block;
         position: relative;
+        padding: 0.2rem 0.5rem;
+        overflow: visible;
       }
       
       .title-flag {
@@ -299,6 +304,7 @@
         border: 3px solid var(--purple-bot);
         opacity: 0;
         animation: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        pointer-events: none;
       }
 
       .cta-wrapper::after {
@@ -804,7 +810,7 @@
       
       /* Promo Gallery Styles - Premium AAA Design */
       .promo-gallery {
-        margin: 3rem auto;
+        margin: 1.5rem auto 2rem;
         max-width: 1100px;
         padding: 0 1rem;
       }
@@ -824,6 +830,7 @@
         aspect-ratio: 16/9;
         transform-style: preserve-3d;
         perspective: 1000px;
+        opacity: 1;
       }
 
       .gallery-item::before {
@@ -915,7 +922,7 @@
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #fff;
-        transform: translateY(100%);
+        transform: translateY(50%);
         transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
         text-shadow: 
           0 2px 10px rgba(0, 0, 0, 0.8),
@@ -972,7 +979,7 @@
       
       /* Optional promo video placeholder */
       .promo-video-container {
-        margin: 3rem auto;
+        margin: 2rem auto 1.5rem;
         max-width: 900px;
         border-radius: 24px;
         overflow: hidden;
@@ -988,7 +995,7 @@
       
       @media (max-width: 768px) {
         .promo-gallery {
-          margin: 2rem auto;
+          margin: 1.5rem auto;
         }
         
         .gallery-grid {
@@ -1080,31 +1087,31 @@
         
         <div class="promo-gallery">
           <div class="gallery-grid">
-            <div class="gallery-item gallery-item-large animate-on-scroll">
+            <div class="gallery-item gallery-item-large">
               <div class="gallery-item-inner">
                 <video autoplay loop muted playsinline poster="assets/marketing/03_flag_steal.png" style="width:100%;height:100%;object-fit:cover;display:block;">
                   <source src="assets/marketing/card_chase.webm" type="video/webm">
                   <source src="assets/marketing/card_chase.mp4" type="video/mp4">
                 </video>
-                <div class="gallery-caption">🏃 Flag Chase</div>
+                <div class="gallery-caption">🚩 Steal the Flag<br><span style="font-size:0.7em;font-weight:600;opacity:0.9;text-transform:none;letter-spacing:0.02em;">Grab it. Carry it. Don't get caught.</span></div>
               </div>
             </div>
-            <div class="gallery-item animate-on-scroll">
+            <div class="gallery-item">
               <div class="gallery-item-inner">
                 <video autoplay loop muted playsinline poster="assets/marketing/04_tag.png" style="width:100%;height:100%;object-fit:cover;display:block;">
                   <source src="assets/marketing/card_tag.webm" type="video/webm">
                   <source src="assets/marketing/card_tag.mp4" type="video/mp4">
                 </video>
-                <div class="gallery-caption">💥 Tag Steal</div>
+                <div class="gallery-caption">💥 Tag the Carrier<br><span style="font-size:0.7em;font-weight:600;opacity:0.9;text-transform:none;letter-spacing:0.02em;">Tag flag-holders in your half—flag returns.</span></div>
               </div>
             </div>
-            <div class="gallery-item animate-on-scroll">
+            <div class="gallery-item">
               <div class="gallery-item-inner">
                 <video autoplay loop muted playsinline poster="assets/marketing/05_beer_rush.png" style="width:100%;height:100%;object-fit:cover;display:block;">
                   <source src="assets/marketing/card_party.webm" type="video/webm">
                   <source src="assets/marketing/card_party.mp4" type="video/mp4">
                 </video>
-                <div class="gallery-caption">🎉 Party Mode</div>
+                <div class="gallery-caption">🍺 Beer Rush<br><span style="font-size:0.7em;font-weight:600;opacity:0.9;text-transform:none;letter-spacing:0.02em;">Power-up chaos. Badge party energy.</span></div>
               </div>
             </div>
           </div>

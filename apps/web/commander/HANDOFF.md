@@ -24,6 +24,8 @@ Import from `apps/web/commander/index.js`.
 | `computeZoom(viewportWidth, viewportHeight, tileSize?)` | Issue 8 scale |
 | `visibleShortSideTiles(viewportWidth, viewportHeight, zoom, tileSize?)` | Tiles on the short side |
 | `createCameraState({ viewportWidth, viewportHeight, bounds, focusX?, focusY? })` | Initial state. Focus is world pixels. Default is map center |
+| `initialFocusForTeam(map, team, tileSize?)` | World-pixel focus of `map.bases[team]`. Null for an unknown team. Not a follow camera |
+| `cameraForViewport(existing, { width, height, bounds, map, team, tileSize })` | Null existing opens on the team base. An existing camera only adopts the new viewport and keeps a pan |
 | `updateCamera(state, input, dt, bounds)` | Next state. Does not mutate inputs |
 | `cameraTransform(state, bounds)` | World pass `{ offsetX, offsetY, zoom, smoothing, imageSmoothingEnabled, space: "world", focusX, focusY, shortSideTiles, nominalShortSideTiles }` |
 | `screenSpaceTransform()` | `{ offsetX: 0, offsetY: 0, zoom: 1, space: "screen" }` |

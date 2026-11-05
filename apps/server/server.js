@@ -267,9 +267,9 @@ setInterval(() => {
     if (event.type === "newMap") spawnSquad(match, squadSize);
   }
 
-  // Broadcast state during play, sudden death, and the results hold.
   roomRouter.tick(dt);
 
+  // Same phases as main: play, sudden death, and the results hold.
   if (shouldBroadcastState(match.phase)) {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);

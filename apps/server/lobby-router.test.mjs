@@ -228,12 +228,19 @@ test("two websocket clients seat opposite commanders on separate room matches", 
       target: { x: 10, y: 10 },
     }));
     const ack = await waitFor(resumedMatch.incoming, (message) => message.type === "command_ack");
+    assert.equal(ack.seq, 1);
     assert.equal(ack.view.budget.current, 5);
-    await waitFor(otherRed.incoming, (message) => message.type === "command_view");
+    const ownView = await waitFor(
+      resumedMatch.incoming,
+      (message) => message.type === "command_view" && message.budget?.current === 5
+    );
+    assert.equal(ownView.budget.current, 5);
+    await waitFor(
+      otherRed.incoming,
+      (message) => message.type === "command_view" && message.budget?.current === 6
+    );
     const otherView = latest(otherRed.incoming, (message) => message.type === "command_view");
     assert.equal(otherView.budget.current, 6);
-    const ownView = latest(resumedMatch.incoming, (message) => message.type === "command_view");
-    assert.equal(ownView.budget.current, 5);
 
     for (const client of [bot, full, bad, resumedMatch, otherRed, otherBot]) client.ws.close();
   } finally {

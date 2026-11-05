@@ -177,7 +177,10 @@ From `apps/server/game.js` CONFIG:
 - `tileSize`: 32px (rendering)
 - `mapWidth`: 64, `mapHeight`: 40
 - `playerSpeed`: 3.0 tiles/second
-- `playerRadius`: 0.4 tiles (collision)
+- `playerRadius`: 0.4 tiles (deprecated, see footprintRadius)
+- `footprintRadius`: 0.3 tiles (circular collision footprint)
+- `treeSlowdown`: 0.5 (50% speed multiplier in trees)
+- `maxMovementStep`: 0.5 tiles (substep limit to prevent tunneling)
 - `flagPickupRadius`: 0.7 tiles
 - `tagRadius`: 0.8 tiles
 - `respawnTimeMs`: 2000 (tagged state duration)
@@ -185,7 +188,7 @@ From `apps/server/game.js` CONFIG:
 - `winScore`: 3 captures
 - `matchEndDelayMs`: 5000 (delay before new map)
 - `visionRadius`: 7 tiles (Euclidean to the tile center, inclusive)
-- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight; the blocker tile is seen, past it is not)
+- `visionBlockers`: [1, 3, 4] (WALL, BUSH, and TREE block line of sight; the blocker tile is seen, past it is not)
 
 ## Fog (team snapshot)
 
@@ -217,9 +220,15 @@ Turning the overlay off cannot reveal enemies or flag coordinates that were left
 ## Map Generation
 
 - Always 64×40 tiles
-- Tile types: 0=FLOOR, 1=WALL (blocks movement and vision), 2=CRATE (blocks movement), 3=BUSH (walkable, blocks vision)
+- Tile types: 
+  - 0=FLOOR (walkable, normal speed)
+  - 1=WALL (blocks movement and vision)
+  - 2=CRATE (blocks movement)
+  - 3=BUSH (walkable, blocks vision)
+  - 4=TREE (walkable but slows movement, blocks vision)
 - Bases at opposite diagonal corners (Red top-left, Bot bottom-right) in 4×4 clear zones
 - Random obstacles: ~8% walls, ~4% crates, ~6% bushes (avoiding base zones)
+- Trees may be added by future map generators
 - Connectivity validated via flood fill between bases
 - Minimum 40 obstacles with variety (walls, crates, bushes) enforced
 - Failed maps regenerate with incremented seed until valid

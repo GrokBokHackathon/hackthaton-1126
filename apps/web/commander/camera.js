@@ -71,6 +71,35 @@ function clampFocus(focusX, focusY, viewportWidth, viewportHeight, zoom, bounds,
 }
 
 /**
+ * World-pixel focus for the commander's own base. Tile coordinates match
+ * welcome.map.bases. Unknown teams return null so the caller keeps the map center.
+ * This is an opening frame only. It does not follow units.
+ */
+export function initialFocusForTeam(map, team, tileSize = TILE_SIZE) {
+  const base = map && map.bases && (team === "red" || team === "bot") ? map.bases[team] : null;
+  if (!base || !Number.isFinite(base.x) || !Number.isFinite(base.y)) return null;
+  const size = tileSize > 0 ? tileSize : TILE_SIZE;
+  return { focusX: base.x * size, focusY: base.y * size };
+}
+
+/**
+ * First viewport opens on the team base. A later call keeps the existing focus,
+ * including a user pan. Passing null opens again, which is the new-round path.
+ */
+export function cameraForViewport(existing, { width, height, bounds, map, team, tileSize } = {}) {
+  if (!existing) {
+    const home = initialFocusForTeam(map, team, tileSize ?? bounds?.tileSize);
+    return createCameraState({
+      viewportWidth: width,
+      viewportHeight: height,
+      bounds,
+      ...(home || {}),
+    });
+  }
+  return updateCamera(existing, { viewportWidth: width, viewportHeight: height }, 0, bounds);
+}
+
+/**
  * @param {{viewportWidth: number, viewportHeight: number, bounds: {mapWidth: number, mapHeight: number, tileSize?: number}, focusX?: number, focusY?: number}} options
  * focusX/focusY are world pixels. Default is the map center.
  */
