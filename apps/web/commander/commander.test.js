@@ -10,9 +10,11 @@ import {
   TILE_SIZE,
   atlasFrame,
   boundsFromMap,
+  cameraForViewport,
   cameraTransform,
   computeZoom,
   createCameraState,
+  initialFocusForTeam,
   createPointerTracker,
   hitTestUnit,
   layoutScreenRect,
@@ -90,6 +92,78 @@ test("camera transform matches the main follow-camera offset math", () => {
     assert.ok(Math.abs(transform.offsetY - legacy.offsetY) < 1e-6);
     assert.ok(transform.shortSideTiles + 1e-9 >= 16 || width === 0);
   }
+});
+
+test("opening camera shows the team base and a resize keeps the pan", () => {
+  const map = {
+    width: 64,
+    height: 40,
+    bases: { red: { x: 2, y: 2 }, bot: { x: 61, y: 37 } },
+  };
+  const bounds = boundsFromMap(map);
+  const sizes = [[390, 844], [1280, 720], [1400, 900]];
+  for (const team of ["red", "bot"]) {
+    const base = map.bases[team];
+    const inwardX = team === "red" ? base.x + 3 : base.x - 3;
+    const inwardY = team === "red" ? base.y + 3 : base.y - 3;
+    for (const [width, height] of sizes) {
+      const camera = cameraForViewport(null, {
+        width,
+        height,
+        bounds,
+        map,
+        team,
+        tileSize: TILE_SIZE,
+      });
+      const home = worldToScreen(camera, bounds, base.x * TILE_SIZE, base.y * TILE_SIZE);
+      const around = worldToScreen(camera, bounds, inwardX * TILE_SIZE, inwardY * TILE_SIZE);
+      assert.ok(home.x >= 0 && home.x <= width, `${team} ${width}x${height} base x ${home.x}`);
+      assert.ok(home.y >= 0 && home.y <= height, `${team} ${width}x${height} base y ${home.y}`);
+      assert.ok(around.x >= 0 && around.x <= width, `${team} surroundings x`);
+      assert.ok(around.y >= 0 && around.y <= height, `${team} surroundings y`);
+    }
+  }
+
+  const center = createCameraState({ viewportWidth: 1280, viewportHeight: 720, bounds });
+  const redFromCenter = worldToScreen(center, bounds, 2 * TILE_SIZE, 2 * TILE_SIZE);
+  assert.ok(redFromCenter.x < 0 || redFromCenter.y < 0);
+
+  const missing = cameraForViewport(null, {
+    width: 1280,
+    height: 720,
+    bounds,
+    map,
+    team: "spectator",
+    tileSize: TILE_SIZE,
+  });
+  assert.equal(missing.focusX, center.focusX);
+  assert.equal(missing.focusY, center.focusY);
+  assert.deepEqual(initialFocusForTeam(map, "red"), { focusX: 2 * TILE_SIZE, focusY: 2 * TILE_SIZE });
+  assert.equal(initialFocusForTeam(map, "blue"), null);
+
+  let camera = cameraForViewport(null, {
+    width: 1280,
+    height: 720,
+    bounds,
+    map,
+    team: "red",
+    tileSize: TILE_SIZE,
+  });
+  const openedX = camera.focusX;
+  camera = updateCamera(camera, { panScreenX: -240, panScreenY: -80 }, 16, bounds);
+  assert.ok(camera.focusX > openedX + 1);
+  const pannedX = camera.focusX;
+  const pannedY = camera.focusY;
+  camera = cameraForViewport(camera, {
+    width: 1280,
+    height: 720,
+    bounds,
+    map,
+    team: "red",
+    tileSize: TILE_SIZE,
+  });
+  assert.equal(camera.focusX, pannedX);
+  assert.equal(camera.focusY, pannedY);
 });
 
 test("updateCamera pans in screen pixels, clamps, ignores dt and input.zoom", () => {

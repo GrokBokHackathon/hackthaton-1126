@@ -10,9 +10,11 @@ export { atlasFrame, READABILITY_FRAME_NAMES } from "./frames.js";
 
 export {
   boundsFromMap,
+  cameraForViewport,
   cameraTransform,
   computeZoom,
   createCameraState,
+  initialFocusForTeam,
   layoutScreenRect,
   screenSpaceTransform,
   screenToWorld,
