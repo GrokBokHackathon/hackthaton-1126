@@ -335,7 +335,6 @@ export class Game {
     drawFlag(ctx, this.state.flags.bot, "bot", time);
 
     // Draw players (own player last for highlight visibility)
-    const time = Date.now();
     const otherPlayers = this.state.players.filter((p) => p.id !== this.playerId);
     const ownPlayerObj = this.state.players.find((p) => p.id === this.playerId);
 
