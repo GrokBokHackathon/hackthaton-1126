@@ -223,3 +223,75 @@ Turning the overlay off cannot reveal enemies or flag coordinates that were left
 - Connectivity validated via flood fill between bases
 - Minimum 40 obstacles with variety (walls, crates, bushes) enforced
 - Failed maps regenerate with incremented seed until valid
+
+## Lobby contract (not served by `server.js` yet)
+
+Two commander seats. The server is authoritative. `apps/server/lobby.js` implements the state machine. The live `/ws` handler does not route it yet. The adapter note is `apps/server/LOBBY_INTEGRATION.md`.
+
+Seat 1 is team `red`. Seat 2 is team `bot`. Those ids match match-lifecycle. In issue 19 wording, seat 1 is team A and seat 2 is team B.
+
+A room id is 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The share link is `/lobby.html?room=AB2K` and never carries the resume token.
+
+### Client → server
+
+```json
+{ "type": "room_create" }
+{ "type": "room_join", "roomId": "AB2K" }
+{ "type": "room_join", "roomId": "AB2K", "resumeToken": "secret" }
+```
+
+`resumeToken` is sent only by the commander who owns that seat, on `room_join`, to reclaim it.
+
+### Server → client
+
+Public, to every commander in the room. No resume token:
+
+```json
+{
+  "type": "room_state",
+  "roomId": "AB2K",
+  "sharePath": "/lobby.html?room=AB2K",
+  "phase": "lobby",
+  "atMs": 0,
+  "seats": [
+    { "seat": 1, "team": "red", "filled": true, "connected": true },
+    { "seat": 2, "team": "bot", "filled": false, "connected": false }
+  ]
+}
+```
+
+```json
+{ "type": "room_error", "error": "room_full", "roomId": "AB2K" }
+```
+
+`room_error.error` is `invalid_room`, `room_full`, `seat_lost`, or `invalid_token`.
+
+Private unicast to the socket that just created, joined, or resumed. This is the only message that carries `resumeToken`:
+
+```json
+{
+  "type": "room_welcome",
+  "ok": true,
+  "error": null,
+  "roomId": "AB2K",
+  "seat": 1,
+  "team": "red",
+  "resumeToken": "secret",
+  "started": false
+}
+```
+
+### Library result
+
+`createRoom(connectionId, now)`, `joinRoom(roomId, connectionId, resumeToken, now)`, and `disconnect(connectionId, now)` return `{ ok, error, roomId, seat, team, resumeToken?, started, events }`. `snapshot(roomId)` is the public board and has no token. `events` are `room_state` or `room_error` only.
+
+`started` is true only on the call that fills the second seat. The core then creates one Match for that `roomId` and admits those two commanders, with no human body. Later resumes return `started: false`.
+
+### Seat rules
+
+- The lowest empty seat is assigned. Seats do not renumber.
+- A third join, or a join without the matching token after the match has started, is `room_full`.
+- A malformed or unknown room id is `invalid_room`.
+- Disconnect in `lobby` frees the seat. The same token resumes it if it is still empty. If it was taken, the error is `seat_lost`.
+- Disconnect in `match` does not free the seat and does not end the match. The seat stays filled with `connected: false`. The same token resumes it. Bots for that team stay on autopilot; this contract does not run autopilot.
+- One match per room. The live `join` path is unchanged until the core adapter lands.
