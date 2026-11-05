@@ -127,6 +127,57 @@ Asset rendering goes through `apps/web/atlas.js` (loading) and `apps/web/assets.
 
 **Planned, not implemented.** Vision radius (7 tiles) and line-of-sight blockers (walls, bushes) are in `CONFIG` on `main`. State broadcast structure supports per-client filtering. Implementation planned: server-side visibility computation + per-client state filtering + client fog overlay.
 
+Tracked in [issue #7](https://github.com/GrokBokHackathon/hackthaton-1126/issues/7).
+
+## 17. Commander Model (Locked, Not Built)
+
+**Locked decision, not yet implemented.** The game switches from direct player control to a **commander model**: bots play autonomously, and human commanders steer them with orders.
+
+**Core rules:**
+- Each team has **3 bots** (configurable count)
+- One flag per base (unchanged from current implementation)
+- Humans do not control movement directly; they issue orders to bots
+- AI commander on the bot team issues `command` messages roughly every 10 seconds under the same economy limits
+
+**Tracked in:**
+- [#4: Decision: switch to the commander model (bots play, humans command)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/4)
+- [#5: Bot autopilot with A* pathfinding and roles](https://github.com/GrokBokHackathon/hackthaton-1126/issues/5)
+- [#8: Commander camera and one scale for phone and desktop](https://github.com/GrokBokHackathon/hackthaton-1126/issues/8)
+- [#9: Command panel UI (orders, budget, counter)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9)
+- [#10: Unit readability: order badges, selection, intent line, ping](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10)
+
+## 18. Order Economy (Locked, Not Built)
+
+**Locked decision, not yet implemented.** Command-point (CP) economy for issuing orders:
+
+**Starting and regeneration:**
+- Start each round with **6 CP**
+- Gain **+1 CP every 5 seconds**
+- Cap at **10 CP** (cannot exceed)
+- Allow at most **15 orders per round** (hard limit)
+
+**Comeback mechanic:**
+- **+3 CP comeback bonus** when trigger condition met
+- **TODO**: Exact trigger condition not specified (likely score-based or time-based)
+
+**Special order:**
+- **Beer Rush**: costs **8 CP**, can be used **once per round**
+- Effect details TBD in implementation
+
+**Tracked in:**
+- [#6: Orders and the command-point economy (server-side)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/6)
+
+## 19. AI Commander (Locked, Not Built)
+
+**Locked decision, not yet implemented.** The bot team has a real Grok Bot commander:
+
+- Issues `command` messages roughly every **10 seconds**
+- Operates under the **same CP economy** and order limits as human commanders
+- Uses LLM decision-making to choose which bots to order and what orders to issue
+
+**Tracked in:**
+- [#4: Decision: switch to the commander model (bots play, humans command)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/4)
+
 ## Answered Questions (Closed by Implementation on `main`)
 
 1. **Team sizes:** Fully dynamic n humans vs m bots. Humans join Red team, bots join Bot team. Server assigns teams automatically.
@@ -137,9 +188,18 @@ Asset rendering goes through `apps/web/atlas.js` (loading) and `apps/web/assets.
 6. **Player states:** idle, running, carrying, tagged, respawn (with 500ms invulnerability).
 7. **Collision and interaction radii:** playerRadius 0.4, flagPickupRadius 0.7, tagRadius 0.8 tiles.
 
+## Answered Questions (Closed by Locked Decisions)
+
+8. **Grok Bot LLM integration:** AI commander issues `command` ~10s under same CP economy (see Decision #19).
+9. **Bot count per team:** 3 bots per team (configurable) in commander model (see Decision #17).
+10. **Order frequency and limits:** 15 orders max per round, CP regenerates at +1/5s up to cap of 10 (see Decision #18).
+
 ## Open Questions (Not Yet Implemented)
 
 1. **Mystery-box powerup effects:** Speed, shield, etc. — planned but not built. Design TBD.
 2. **Fog of war visibility calculation:** Line-of-sight algorithm choice and per-client filtering strategy.
-3. **Grok Bot LLM integration:** Decision-making frequency, prompt structure, fallback behavior.
-4. **Behavior-tree rewrites (stretch):** JSON schema, edit safety, in-match vs between-match timing.
+3. **Comeback bonus trigger:** +3 CP bonus trigger condition (score-based? time-based?) — TBD in implementation (see Decision #18).
+4. **Beer Rush effect:** 8 CP special order, once per round — effect details TBD.
+5. **Order types:** Specific order vocabulary beyond Beer Rush — TBD in implementation.
+6. **Bot roles:** Specific roles/behaviors for 3-bot autopilot — TBD in implementation.
+7. **Behavior-tree rewrites (stretch):** JSON schema, edit safety, in-match vs between-match timing.

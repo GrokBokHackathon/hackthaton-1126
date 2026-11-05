@@ -127,16 +127,46 @@ node apps/bot/bot.js wss://<your-hostname>/ws BotA
 5. **Sounds**: None - outside scope
 6. **Animations**: Frame hooks exist, but placeholders don't animate yet
 
-## 🎯 Next Priorities
+## 🎮 Commander Model - Locked Design, Not Yet Built
 
-1. **Art wiring** (small, client-only) - drop sprite sheets into atlas system
-2. **Fog of war** (server + client) - visibility filtering per player
-3. **More testing** with multiple real humans + multiple bots
-4. **Polish**: Better respawn effects, flag trail indicators, minimap
-5. **Grok Bot integration** - replace simple AI with LLM decision-making
+**Status**: Design decisions locked, implementation tracked in issues #4-#11 (Wiktor owns).
+
+### What's Changing
+
+The game is switching from direct player control to a **commander model**:
+- **Bots play autonomously** with A* pathfinding and roles
+- **Human commanders steer** with orders (not direct movement)
+- **3 bots per team** (configurable)
+- **One flag per base** (unchanged)
+
+### Order Economy (Locked, Not Built)
+
+- Start with **6 CP** (command points)
+- Gain **+1 CP every 5 seconds**
+- Cap at **10 CP**
+- Maximum **15 orders per round**
+- **+3 CP comeback bonus** (trigger condition TODO)
+- **Beer Rush**: 8 CP special order, once per round
+
+### AI Commander (Locked, Not Built)
+
+- Grok Bot commander issues `command` messages roughly every **10 seconds**
+- Operates under same CP economy and order limits as humans
+
+### Implementation Roadmap
+
+**Tracked issues (Wiktor owns):**
+1. [#4: Decision: switch to the commander model (bots play, humans command)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/4)
+2. [#5: Bot autopilot with A* pathfinding and roles](https://github.com/GrokBokHackathon/hackthaton-1126/issues/5)
+3. [#6: Orders and the command-point economy (server-side)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/6)
+4. [#7: Server-side fog of war](https://github.com/GrokBokHackathon/hackthaton-1126/issues/7)
+5. [#8: Commander camera and one scale for phone and desktop](https://github.com/GrokBokHackathon/hackthaton-1126/issues/8)
+6. [#9: Command panel UI (orders, budget, counter)](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9)
+7. [#10: Unit readability: order badges, selection, intent line, ping](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10)
+8. [#11: Round loop: win condition, new map each round, results screen](https://github.com/GrokBokHackathon/hackthaton-1126/issues/11)
 
 ---
 
-**Status**: ✅ Merged to main and playable!  
+**Status**: ✅ Current implementation merged to main and playable!  
 **Demo**: Spin up server, open 2+ tabs, run bots, play to 3 captures  
-**Next priorities**: Fog of war, mystery-box powerups, Grok Bot LLM integration
+**Next**: Commander model implementation (see issues #4-#11), fog of war, mystery-box powerups

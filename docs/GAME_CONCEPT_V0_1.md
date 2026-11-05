@@ -1,6 +1,6 @@
 # Game concept proposal v0.1 — patrons and autonomous heroes
 
-**Status: first discussion proposal.** This document is a v0.1 idea for the team to accept, revise, or reject. It is not approved implementation scope. It does not record a decision, a protocol, or behavior that exists in code.
+**Status: discussion proposal, superseded by locked commander model.** This document was a v0.1 idea for indirect control with patron proposals, personalities, and equal budgets. The team has since locked a simpler **commander model** (Decision #17 in [DECISIONS.md](DECISIONS.md)): 3 bots per team with orders and CP economy, no personality system. This proposal remains as historical context.
 
 Coordinator note: Pan Wiktor identified this path (`docs/GAME_CONCEPT_V0_1.md`) as the proposed destination. The language is English, matching the rest of the repository.
 

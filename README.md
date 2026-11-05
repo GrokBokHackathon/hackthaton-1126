@@ -15,7 +15,8 @@ This repository is the handoff surface for Wiktor, Greg, and their bots. Product
 - Bases on **opposite diagonals**; a **procedural map** each round with random obstacles and a **guaranteed path** between bases — **✅ Implemented**
 - Server runs on a **team computer**, published with a **Cloudflare Tunnel**; gameplay traffic is **WebSocket** at `/ws` — **✅ Ready**
 - Each player runs their **own client** and joins the public tunnel URL — **✅ Implemented**
-- **Mystery-box powerups** are the **next** slice after the live match (**planned, not started**)
+- **Commander model**: bots play autonomously, humans steer with orders, AI commander on bot team — **🔒 Locked design, not built** (see [issues #4-#11](https://github.com/GrokBokHackathon/hackthaton-1126/issues))
+- **Mystery-box powerups** — **planned, not started**
 
 Stretch (optional): LLM rewrites of bot JSON behavior trees between matches or as a light mid-match tweak. See the decision log.
 
@@ -147,10 +148,12 @@ npm test --prefix apps/server
 
 ## Next steps
 
-1. **Fog of war** (server-computed, per-client state filtering) — planned, config ready
-2. **Mystery-box powerups**: speed, shield, etc. — planned
-3. Final art pack (sprite sheets) — rendering system ready, placeholders working
-4. Grok Bot LLM decision-making to replace simple AI
+**Current implementation** (direct player control) is playable on `main`. **Next phase** switches to the commander model:
+
+1. **Commander model** (locked design, tracked in [issues #4-#11](https://github.com/GrokBokHackathon/hackthaton-1126/issues)) — bots play autonomously with A* pathfinding, human commanders steer with orders under CP economy (6 start, +1/5s, cap 10, max 15 orders/round, Beer Rush 8 CP once/round), AI commander on bot team
+2. **Fog of war** (server-computed, per-client state filtering) — planned, config ready
+3. **Mystery-box powerups**: speed, shield, etc. — planned
+4. Final art pack (sprite sheets) — rendering system ready, placeholders working
 5. Stretch: behavior-tree rewrites — see [docs/DECISIONS.md](docs/DECISIONS.md)
 
 ## Contributing
