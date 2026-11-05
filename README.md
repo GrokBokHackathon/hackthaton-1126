@@ -4,6 +4,18 @@ Silly realtime party game. **n humans vs m Grok Bots** on a **2D top-down** map.
 
 This repository is the source of truth. Product choices are in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## Verified deployment
+
+Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. The stack runs there with Podman via `docker-compose`. This build is a mock connectivity scaffold, not a playable Capture the Flag match yet.
+
+- Local server: <http://127.0.0.1:8080>
+- Local web stub: <http://127.0.0.1:3000>
+- Public URL: <https://hakaton-11-26.wffe.io>
+- `GET https://hakaton-11-26.wffe.io/health` returned **200** with `{"ok":true,"service":"ctf-mock","role":"realtime-game-server","websocket":"/ws"}`.
+- `wss://hakaton-11-26.wffe.io/ws`, tested from an external machine, received hello and echoed a message.
+- The Cloudflare published hostname routes to `http://server:8080` on the Compose network.
+- `CLOUDFLARE_TUNNEL_TOKEN` stays in the ignored local `.env` only. Do not write token values or credentials into this repo.
+
 ## Goals
 
 - Realtime Capture the Flag. Humans and bots move continuously on one shared map. Not turns, and not a between-match trainer.
@@ -67,10 +79,7 @@ Published ports are loopback only:
 - Mock server: <http://127.0.0.1:8080/health> and <http://127.0.0.1:8080/> (same-origin echo page)
 - Web stub: <http://127.0.0.1:3000/>
 
-Public check, after the tunnel shows healthy:
-
-- `curl https://<your-hostname>/health`
-- Open `https://<your-hostname>/` and send a WebSocket message. The server echoes it.
+Public URL already checked: [Verified deployment](#verified-deployment).
 
 The mock sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Both pages reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
 
