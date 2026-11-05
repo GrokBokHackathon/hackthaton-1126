@@ -162,6 +162,11 @@ export function renderUnitOverlay(input) {
   const zoom = transform.zoom;
   const warnings = [];
   const knownIds = new Set(units.map((unit) => unit && unit.id).filter((id) => id != null));
+  const selectedIds = new Set(
+    Array.isArray(input.selectedUnitIds)
+      ? input.selectedUnitIds.filter((id) => id != null)
+      : input.selectedUnitId != null ? [input.selectedUnitId] : []
+  );
 
   for (const id of Object.keys(presentation)) {
     if (!knownIds.has(id)) warnings.push({ code: "presentation-for-unknown-unit", unitId: id });
@@ -221,7 +226,7 @@ export function renderUnitOverlay(input) {
       }
     }
 
-    if (friendly && input.selectedUnitId === unit.id && team) {
+    if (friendly && selectedIds.has(unit.id) && team) {
       const index = loopFrame(nowMs, SEL_RING_FRAME_MS, SEL_RING_FRAME_COUNT);
       const ring = spriteMarker(
         "selection-ring",
@@ -249,8 +254,8 @@ export function renderUnitOverlay(input) {
     }
   }
 
-  if (input.selectedUnitId != null && !knownIds.has(input.selectedUnitId)) {
-    warnings.push({ code: "selection-not-in-filtered-units", unitId: input.selectedUnitId });
+  for (const id of selectedIds) {
+    if (!knownIds.has(id)) warnings.push({ code: "selection-not-in-filtered-units", unitId: id });
   }
 
   for (const ping of mapPings) {

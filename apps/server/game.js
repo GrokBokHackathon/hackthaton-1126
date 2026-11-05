@@ -34,6 +34,15 @@ export const CONFIG = {
 
 const TICK_MS = 1000 / CONFIG.tickRate;
 
+export const TEAMS = Object.freeze(["red", "bot"]);
+
+/** Optional `team` on a join. Missing keeps the old default (humans red, bots bot). */
+export function resolveJoinTeam(value) {
+  if (value == null || value === "") return { ok: true, team: null };
+  if (TEAMS.includes(value)) return { ok: true, team: value };
+  return { ok: false, error: "invalid_team" };
+}
+
 // Tile types
 const FLOOR = 0;
 const WALL = 1;

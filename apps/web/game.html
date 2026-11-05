@@ -9,6 +9,12 @@
       :root {
         color-scheme: light dark;
         font-family: "Segoe UI", system-ui, sans-serif;
+        --team-red: #e2475a;
+        --team-bot: #a27bff;
+      }
+      html,
+      body {
+        height: 100%;
       }
       body {
         margin: 0;
@@ -16,24 +22,73 @@
         overflow: hidden;
         background: #1a1a1a;
         color: #fff;
+        display: flex;
+        flex-direction: column;
       }
       #ui {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        padding: 1rem;
-        background: rgba(0, 0, 0, 0.7);
+        position: relative;
+        flex: 0 0 auto;
+        padding: 0.5rem 1rem;
+        background: #0d0f14;
+        border-bottom: 1px solid #262c38;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 0.75rem;
         z-index: 10;
         /* Score and round stay visible. The bar never takes clicks from the canvas or the order panel. */
         pointer-events: none;
       }
+      #hud-main {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
       #score {
-        font-size: 1.5rem;
+        font-size: 1.35rem;
         font-weight: bold;
+        white-space: nowrap;
+      }
+      #score .score-red {
+        color: var(--team-red);
+      }
+      #score .score-bot {
+        color: var(--team-bot);
+      }
+      #team-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+      }
+      #team-badge[hidden] {
+        display: none;
+      }
+      #team-name {
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        font-weight: 700;
+        border: 1px solid currentColor;
+      }
+      #team-badge[data-team="red"] #team-name {
+        color: var(--team-red);
+      }
+      #team-badge[data-team="bot"] #team-name {
+        color: var(--team-bot);
+      }
+      #switch-team {
+        pointer-events: auto;
+        font: inherit;
+        font-size: 0.85rem;
+        min-height: 36px;
+        padding: 0.2rem 0.7rem;
+        border-radius: 8px;
+        border: 1px solid #5d6b80;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
       }
       /* Debug readout: connection text, fog label, and frame counters.
          Hidden unless body[data-debug-overlay="on"] (?debug=1).
@@ -56,6 +111,7 @@
         align-items: flex-end;
         gap: 0.2rem;
         max-width: 60%;
+        text-align: right;
       }
       canvas {
         display: block;
@@ -64,22 +120,128 @@
         touch-action: none;
       }
       #command-shell {
-        position: absolute;
-        top: 72px;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        position: relative;
+        flex: 1 1 auto;
+        min-height: 0;
       }
       #container {
         position: absolute;
         inset: 0;
         touch-action: none;
       }
+      #canvas[data-armed="true"] {
+        cursor: crosshair;
+      }
+
+      /* Team picker */
+      #team-pick {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(8, 10, 16, 0.88);
+        backdrop-filter: blur(3px);
+      }
+      #team-pick[hidden] {
+        display: none;
+      }
+      .pick-card {
+        width: min(36rem, 100%);
+        padding: 1.5rem;
+        border-radius: 16px;
+        background: #141821;
+        border: 1px solid #3a4458;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+      .pick-card h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.6rem;
+      }
+      .pick-card p {
+        margin: 0 0 1rem;
+        color: #b7c3d1;
+      }
+      .pick-options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+      }
+      @media (max-width: 480px) {
+        .pick-options {
+          grid-template-columns: 1fr;
+        }
+      }
+      .pick-team {
+        --team: #8ea0b5;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        min-height: 120px;
+        padding: 1rem;
+        border-radius: 12px;
+        border: 2px solid var(--team);
+        background: color-mix(in srgb, var(--team) 14%, #141821);
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .pick-team[data-team="red"] {
+        --team: var(--team-red);
+      }
+      .pick-team[data-team="bot"] {
+        --team: var(--team-bot);
+      }
+      .pick-team:hover,
+      .pick-team:focus-visible {
+        background: color-mix(in srgb, var(--team) 30%, #141821);
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 45%, transparent);
+      }
+      .pick-team[data-last="true"]::after {
+        content: "Last time";
+        align-self: flex-start;
+        font-size: 0.72rem;
+        padding: 0.05rem 0.45rem;
+        border-radius: 999px;
+        border: 1px solid var(--team);
+      }
+      .pick-team-name {
+        font-size: 1.3rem;
+        font-weight: 800;
+        color: var(--team);
+      }
+      .pick-team-where {
+        font-size: 0.9rem;
+        color: #d5deE8;
+      }
+      #pick-error {
+        margin: 0.75rem 0 0;
+        color: #ffb4a8;
+      }
+      #pick-error:empty {
+        display: none;
+      }
+      .pick-foot {
+        margin: 1rem 0 0;
+        font-size: 0.82rem;
+        color: #8b97a8;
+      }
     </style>
   </head>
   <body>
     <div id="ui">
-      <div id="score">Red 0 - 0 Bot</div>
+      <div id="hud-main">
+        <div id="score">Red 0 - 0 Bot</div>
+        <div id="team-badge" hidden>
+          <span>You command</span>
+          <span id="team-name"></span>
+          <button type="button" id="switch-team">Switch team</button>
+        </div>
+      </div>
       <div id="hud-side">
         <div id="round" hidden></div>
         <div id="status">Connecting...</div>
@@ -94,6 +256,24 @@
         </div>
       </div>
       <div id="command-dock" class="cp-dock"></div>
+    </div>
+    <div id="team-pick" role="dialog" aria-modal="true" aria-labelledby="pick-title" hidden>
+      <div class="pick-card">
+        <h1 id="pick-title">Choose your team</h1>
+        <p>You are the commander. Your bots play on their own; you spend command points to give them orders.</p>
+        <div class="pick-options">
+          <button type="button" class="pick-team" data-team="red">
+            <span class="pick-team-name">Red</span>
+            <span class="pick-team-where">Base: top-left corner</span>
+          </button>
+          <button type="button" class="pick-team" data-team="bot">
+            <span class="pick-team-name">Bot</span>
+            <span class="pick-team-where">Base: bottom-right corner</span>
+          </button>
+        </div>
+        <p id="pick-error" role="alert"></p>
+        <p class="pick-foot">You can switch teams later from the top bar. Share a link with <code>?team=red</code> or <code>?team=bot</code> to skip this step.</p>
+      </div>
     </div>
     <script type="module">
       import { Game } from "./game.js";

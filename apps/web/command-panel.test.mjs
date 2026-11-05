@@ -14,6 +14,7 @@ const {
   buildCommandPayload,
   createCommandSession,
   layoutForViewport,
+  mountCommandPanel,
   paintCommandPanel,
   rejectionText,
   viewModelToHtml,
@@ -51,11 +52,19 @@ test("module is not wired to the game client or the server", () => {
   }
 });
 
-test("issue 9 orders and placeholder frames are named without prices", () => {
+test("issue 9 orders plus beer are named without prices, and only beer skips the target", () => {
   assert.deepEqual(
     COMMAND_ORDERS.map((order) => order.id),
-    ["rally", "scout", "defend", "escort", "attack", "tag"]
+    ["rally", "scout", "defend", "escort", "attack", "tag", "beer"]
   );
+  assert.deepEqual(
+    COMMAND_ORDERS.filter((order) => !order.needsTarget).map((order) => order.id),
+    ["beer"]
+  );
+  for (const order of COMMAND_ORDERS) {
+    assert.match(order.label, /^[A-Z]/);
+    assert.ok(order.hint.length > 0);
+  }
   assert.deepEqual(COMMAND_FLOW_STEPS, ["select", "order", "target"]);
   assert.equal(PLACEHOLDER_ASSETS.status, "missing");
   assert.ok(PLACEHOLDER_ASSETS.files.includes("ui_orders_placeholder.png"));
@@ -136,15 +145,19 @@ test("missing server snapshot keeps orders, budget, and cooldowns unknown", () =
   assert.equal(view.budget.text, "unknown");
   assert.equal(view.orderCount.text, "unknown");
   assert.equal(view.wiredToServer, false);
-  assert.equal(view.orderButtons.length, 6);
+  assert.equal(view.orderButtons.length, 7);
+  assert.equal(view.selection.kind, "all");
+  assert.equal(view.step, "order");
   for (const order of view.orderButtons) {
     assert.equal(order.enabled, false);
     assert.equal(order.costText, "unknown");
     assert.equal(order.reasonText, "Waiting for the server");
+    assert.equal(order.shortReason, "Waiting for server");
     assert.equal(order.cooldown.status, "not_supplied");
   }
   const html = viewModelToHtml(view, { idPrefix: "t" });
-  assert.match(html, /Command rules: unknown/);
+  assert.match(html, /Waiting for the server/);
+  assert.doesNotMatch(html, /data-step="select"|cp-steps/);
   assert.match(html, /data-order="rally"/);
   assert.match(html, /data-order="tag"/);
   assert.match(html, /aria-disabled="true"/);
@@ -152,7 +165,7 @@ test("missing server snapshot keeps orders, budget, and cooldowns unknown", () =
   assert.match(html, /data-frame="cp_coin_16"/);
   assert.match(html, /data-frame="orders_counter"/);
   assert.doesNotMatch(html, /pip_full/);
-  assert.equal(session.chooseOrder("rally").error, "selection_unavailable");
+  assert.equal(session.chooseOrder("rally").error, "order_not_enabled");
   session.selectAll();
   const blocked = session.chooseOrder("scout");
   assert.equal(blocked.error, "order_not_enabled");
@@ -246,7 +259,8 @@ test("selection, enabled order, and opaque target emit one command", () => {
   assert.match(html, /data-frame="pip_empty"/);
   assert.match(html, /--cp-sweep:0\.5/);
   assert.match(html, /data-disabled-frame="btn_disabled"/);
-  assert.match(html, /Command pending/);
+  assert.match(html, /Sending Rally/);
+  assert.match(html, /data-step="pending"/);
 });
 
 test("all selection omits unitIds, and a map of capabilities is accepted", () => {
@@ -401,7 +415,7 @@ test("negative or oversized server numbers are shown and not clamped into a bar"
   assert.equal(view.orderButtons[0].costText, "-3");
   const html = viewModelToHtml(view, { idPrefix: "t" });
   assert.doesNotMatch(html, /pip_full/);
-  assert.match(html, /CP -3/);
+  assert.match(html, /-3 CP/);
 });
 
 test("painter marks unknown rules and a shell dock without owning the arena", () => {
@@ -418,7 +432,7 @@ test("painter marks unknown rules and a shell dock without owning the arena", ()
   assert.equal(parts.root.dataset.rules, "unknown");
   assert.equal(parts.root.dataset.wired, "false");
   assert.match(parts.body.innerHTML, /data-order="tag"/);
-  assert.match(parts.polite.textContent, /Select a bot or All/);
+  assert.match(parts.polite.textContent, /Pick an order, then tap the map/);
   assert.equal(parts.assertive.textContent, "");
   assert.equal(parts.emote.hidden, true);
 
@@ -574,8 +588,9 @@ test("roster refresh drops a removed id and does not send or enter pending", () 
   assert.equal(sent.length, 0);
   assert.notEqual(view.step, "pending");
   assert.equal(view.pendingSeq, null);
-  assert.equal(view.selection.kind, "none");
+  assert.equal(view.selection.kind, "all");
   assert.deepEqual(view.selection.unitIds, []);
+  assert.equal(view.orderId, null);
 });
 
 test("roster refresh treats selectable false as no longer armed", () => {
@@ -589,7 +604,7 @@ test("roster refresh treats selectable false as no longer armed", () => {
   assert.equal(result.ok, false);
   assert.equal(sent.length, 0);
   assert.notEqual(view.step, "pending");
-  assert.equal(view.selection.kind, "none");
+  assert.equal(view.selection.kind, "all");
 });
 
 test("roster refresh keeps selectable ids and drops the stale ones", () => {
@@ -659,7 +674,7 @@ test("a roster refresh does not cancel an in-flight unit command", () => {
   assert.equal(view.step, "pending");
   assert.equal(view.pendingSeq, sent[0].seq);
   assert.deepEqual(view.lastPayload.unitIds, ["auto-red-0"]);
-  assert.equal(view.selection.kind, "none");
+  assert.equal(view.selection.kind, "all");
   assert.equal(sent.length, 1);
 });
 
@@ -682,6 +697,263 @@ test("all stays all across a roster refresh and a pending command is not reopene
   assert.equal(view.lastPayload.all, true);
   assert.equal(sent.length, 1);
 });
+
+function liveSession(sent) {
+  const session = createCommandSession({
+    onCommand(payload) {
+      sent.push(payload);
+      return true;
+    },
+  });
+  session.update({
+    nextSeq: 1,
+    team: { id: "red", label: "Red" },
+    units: [
+      { id: "auto-red-0", name: "Red Runner", selectable: true },
+      { id: "auto-red-1", name: "Red Guard", selectable: true },
+      { id: "auto-red-2", name: "Red Roamer", selectable: true },
+    ],
+    budget: { current: 6, cap: 10 },
+    orderCount: { used: 0, max: 15 },
+    capabilities: {
+      orders: [
+        { id: "rally", label: "rally", cost: 1, enabled: true },
+        { id: "scout", label: "scout", cost: 1, enabled: true },
+        { id: "defend", label: "defend", cost: 2, enabled: true },
+        { id: "escort", label: "escort", cost: 3, enabled: true },
+        { id: "attack", label: "attack", cost: 3, enabled: true },
+        { id: "tag", label: "tag", cost: 4, enabled: true },
+        { id: "beer", label: "beer", cost: 8, enabled: false, disabledReason: "not_enough_cp" },
+      ],
+    },
+  });
+  return session;
+}
+
+test("whole squad is preselected so an order is two taps: order, then map", () => {
+  const sent = [];
+  const session = liveSession(sent);
+  const view = session.getViewModel();
+  assert.equal(view.selection.kind, "all");
+  assert.equal(view.selectionLabel, "Whole squad");
+  assert.equal(view.step, "order");
+  assert.equal(session.chooseOrder("rally").ok, true);
+  assert.equal(session.getViewModel().step, "target");
+  assert.equal(session.setTarget({ x: 5, y: 4 }).ok, true);
+  assert.deepEqual(sent[0], { type: "command", seq: 1, order: "rally", all: true, target: { x: 5, y: 4 } });
+  session.update({ commandResult: { type: "command_ack", seq: 1 } });
+  const after = session.getViewModel();
+  assert.equal(after.step, "order");
+  assert.equal(after.commandStatus.text, "Rally sent to Whole squad.");
+  assert.match(viewModelToHtml(after), /Rally sent to Whole squad/);
+});
+
+test("server lowercase labels show as plain catalog labels and units drop the team prefix", () => {
+  const session = liveSession([]);
+  const view = session.getViewModel();
+  assert.deepEqual(
+    view.orderButtons.map((order) => order.label),
+    ["Rally", "Scout", "Defend", "Escort", "Attack", "Tag", "Beer"]
+  );
+  assert.deepEqual(view.units.list.map((unit) => unit.shortName), ["Runner", "Guard", "Roamer"]);
+  const html = viewModelToHtml(view, { idPrefix: "t" });
+  assert.match(html, />Runner</);
+  assert.match(html, /title="Red Runner"/);
+  assert.match(html, /Red squad/);
+  assert.match(html, /data-team="red"/);
+  assert.match(html, /1 CP/);
+  assert.match(html, /Need 8 CP/);
+  assert.match(html, /Not enough command points/);
+});
+
+test("tapping bots toggles them; an empty pick falls back to the whole squad", () => {
+  const sent = [];
+  const session = liveSession(sent);
+  assert.equal(session.toggleUnit("auto-red-0").ok, true);
+  assert.equal(session.toggleUnit("auto-red-1").ok, true);
+  let view = session.getViewModel();
+  assert.deepEqual(view.selection.unitIds, ["auto-red-0", "auto-red-1"]);
+  assert.equal(view.selectionLabel, "Runner + Guard");
+  assert.equal(view.allSelected, false);
+  session.toggleUnit("auto-red-0");
+  assert.deepEqual(session.getViewModel().selection.unitIds, ["auto-red-1"]);
+  session.toggleUnit("auto-red-1");
+  view = session.getViewModel();
+  assert.equal(view.selection.kind, "all");
+  assert.equal(view.allSelected, true);
+
+  session.toggleUnit("auto-red-2");
+  session.chooseOrder("defend");
+  session.toggleUnit("auto-red-0");
+  assert.equal(session.getViewModel().step, "target");
+  session.setTarget({ x: 2, y: 3 });
+  assert.deepEqual(sent[0].unitIds, ["auto-red-2", "auto-red-0"]);
+});
+
+test("tapping the armed order again or Cancel disarms it without sending", () => {
+  const sent = [];
+  const session = liveSession(sent);
+  session.chooseOrder("scout");
+  assert.equal(session.getViewModel().targetRule, "Any tile, even in the fog.");
+  let html = viewModelToHtml(session.getViewModel());
+  assert.match(html, /Tap the map: Scout → Whole squad/);
+  assert.match(html, /data-action="cancel-order"/);
+  assert.match(html, /data-order="scout"[^>]*aria-pressed="true"/);
+  const again = session.chooseOrder("scout");
+  assert.equal(again.cancelled, true);
+  assert.equal(session.getViewModel().step, "order");
+  session.chooseOrder("tag");
+  assert.equal(session.getViewModel().targetRule, "Only a tile you can see right now.");
+  session.chooseOrder("rally");
+  assert.equal(session.getViewModel().orderId, "rally");
+  assert.equal(session.getViewModel().targetRule, "Any tile you have explored.");
+  assert.equal(session.cancelOrder().ok, true);
+  assert.equal(session.cancelOrder().error, "nothing_armed");
+  html = viewModelToHtml(session.getViewModel());
+  assert.doesNotMatch(html, /data-action="cancel-order"/);
+  assert.equal(sent.length, 0);
+});
+
+test("beer is sent on tap with no target and no unit list", () => {
+  const sent = [];
+  const session = liveSession(sent);
+  session.toggleUnit("auto-red-0");
+  assert.equal(session.chooseOrder("beer").error, "order_not_enabled");
+  session.update({
+    budget: { current: 9, cap: 10 },
+    capabilities: { orders: [{ id: "beer", cost: 8, enabled: true }] },
+  });
+  const result = session.chooseOrder("beer");
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent[0], { type: "command", seq: 1, order: "beer", all: true });
+  assert.equal(session.getViewModel().step, "pending");
+  session.update({ commandResult: { type: "command_ack", seq: 1 } });
+  assert.equal(session.getViewModel().commandStatus.text, "Beer sent to Whole squad.");
+  assert.equal(session.getViewModel().orderId, null);
+
+  const offline = createCommandSession({ onCommand: () => false });
+  offline.update({ capabilities: { orders: [{ id: "beer", enabled: true }] } });
+  assert.equal(offline.chooseOrder("beer").error, "transport_failed");
+  assert.equal(offline.getViewModel().orderId, null);
+  assert.equal(offline.getViewModel().step, "order");
+});
+
+test("disabled buttons say why in a few words", () => {
+  const session = createCommandSession();
+  session.update({
+    capabilities: {
+      orders: [
+        { id: "rally", cost: 1, enabled: true, cooldown: { remainingMs: 1500, durationMs: 2000 } },
+        { id: "scout", cost: 1, enabled: false, disabledReason: "no_orders_left" },
+        { id: "beer", cost: 8, enabled: false, disabledReason: "already_used" },
+        { id: "tag", cost: 4, enabled: false, disabledReason: "not_enough_cp" },
+      ],
+    },
+  });
+  const byId = Object.fromEntries(session.getViewModel().orderButtons.map((order) => [order.id, order]));
+  assert.equal(byId.rally.shortReason, "Ready in 1.5s");
+  assert.equal(byId.scout.shortReason, "No orders left");
+  assert.equal(byId.beer.shortReason, "Used this round");
+  assert.equal(byId.tag.shortReason, "Need 4 CP");
+  assert.equal(byId.defend.shortReason, "Waiting for server");
+});
+
+test("a fog target code from the map bridge reads as plain text", () => {
+  const session = liveSession([]);
+  session.chooseOrder("tag");
+  session.setTarget({ x: 1, y: 1 }, { valid: false, reason: "target_not_visible" });
+  const view = session.getViewModel();
+  assert.equal(view.targetRejection.text, "Target is not visible");
+  assert.equal(view.step, "target");
+  assert.match(viewModelToHtml(view), /Tap another spot for Tag/);
+});
+
+test("mounted panel repaints only changed sections and survives a repaint mid-tap", () => {
+  const doc = fakeDocument();
+  const container = doc.createElement("div");
+  const sent = [];
+  const panel = mountCommandPanel(container, {
+    document: doc,
+    injectStylesheet: false,
+    layout: "desktop",
+    listenResize: false,
+    onCommand: (payload) => {
+      sent.push(payload);
+      return true;
+    },
+  });
+  const sections = container.children[0].children[1].children[0].children;
+  assert.deepEqual(sections.map((section) => section.dataset.section), ["status", "who", "prompt", "orders"]);
+  panel.update({
+    units: [{ id: "auto-red-0", name: "Red Runner" }],
+    budget: { current: 6, cap: 10 },
+    capabilities: { orders: [{ id: "rally", cost: 1, enabled: true }] },
+  });
+  const who = sections[1];
+  const before = who.writes;
+  panel.update({ budget: { current: 7, cap: 10 } });
+  assert.equal(who.writes, before, "the Who row is not rewritten when only CP changes");
+
+  const root = panel.root;
+  const down = { target: button("order:rally", "choose-order", { "data-order": "rally" }), button: 0 };
+  root.dispatch("pointerdown", down);
+  panel.update({ budget: { current: 8, cap: 10 } });
+  const up = { target: button("order:rally", "choose-order", { "data-order": "rally" }) };
+  root.dispatch("pointerup", up);
+  assert.equal(panel.getViewModel().step, "target");
+  root.dispatch("click", { target: up.target });
+  assert.equal(panel.getViewModel().step, "target", "the trailing click does not toggle the order back off");
+  panel.setTarget({ x: 3, y: 3 });
+  assert.equal(sent.length, 1);
+  panel.destroy();
+
+  function button(key, action, extra = {}) {
+    const attrs = { "data-key": key, "data-action": action, ...extra };
+    const fake = {
+      getAttribute: (name) => attrs[name] ?? null,
+      closest: (selector) => (selector === "button[data-action]" ? fake : null),
+    };
+    return fake;
+  }
+});
+
+function fakeDocument() {
+  function element(tag) {
+    const listeners = {};
+    const el = {
+      tagName: tag.toUpperCase(),
+      children: [],
+      dataset: {},
+      className: "",
+      hidden: false,
+      textContent: "",
+      writes: 0,
+      _html: "",
+      get innerHTML() {
+        return this._html;
+      },
+      set innerHTML(value) {
+        this._html = value;
+        this.writes += 1;
+      },
+      appendChild(child) {
+        this.children.push(child);
+        return child;
+      },
+      setAttribute() {},
+      addEventListener(type, fn) {
+        (listeners[type] ||= []).push(fn);
+      },
+      dispatch(type, event) {
+        for (const fn of listeners[type] || []) fn(event);
+      },
+      contains: () => true,
+      remove() {},
+    };
+    return el;
+  }
+  return { createElement: element, activeElement: null };
+}
 
 function rallySession(sent, unitIds = ["auto-red-0"]) {
   const session = createCommandSession({

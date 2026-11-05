@@ -24,6 +24,15 @@ import {
   unitsFromState,
 } from "./commander/live-hook.js";
 import { applyDebugOverlay, debugOverlayEnabled } from "./commander/debug-overlay.js";
+import {
+  LAST_TEAM_KEY,
+  joinMessage,
+  normalizeTeamId,
+  scoreText,
+  teamFromSearch,
+  teamLabel,
+  winnerText,
+} from "./commander/team-pick.js";
 import { drawFog } from "./fog.js";
 import { roundHudFromState } from "./commander/round-hud.js";
 import {
@@ -48,6 +57,8 @@ export class Game {
 
     this.playerId = null;
     this.team = null;
+    this.desiredTeam = null;
+    this.playerName = "Player" + Math.floor(Math.random() * 1000);
     this.map = null;
     this.state = null;
     this.score = { red: 0, bot: 0 };
@@ -55,7 +66,6 @@ export class Game {
 
     this.camera = null;
     this.bounds = null;
-    this.selectedUnitId = null;
     this.frameCounts = {};
     this.linkState = "idle";
     this.artProof = emptyArtProof();
@@ -126,25 +136,48 @@ export class Game {
     if (gesture.cameraInput && this.camera && this.bounds) {
       this.camera = updateCamera(this.camera, gesture.cameraInput, 0, this.bounds);
     }
-    if (gesture.gesture === "center-on-unit" && gesture.unitId) {
-      this.selectedUnitId = gesture.unitId;
-      this.selectForOrder(gesture.unitId);
-    } else if (gesture.gesture === "tap") {
-      if (gesture.unitId) {
-        this.selectedUnitId = gesture.unitId;
-        this.selectForOrder(gesture.unitId);
-      } else {
-        this.selectedUnitId = null;
-        this.offerMapTarget(gesture.x, gesture.y);
-      }
+    if (gesture.gesture !== "tap" || !this.commandPanel) return;
+    // An armed order owns every map tap, including taps on top of a unit:
+    // Tag and Escort are usually aimed at someone.
+    if (this.commandPanel.getViewModel().step === "target") {
+      this.offerMapTarget(gesture.x, gesture.y);
+      return;
     }
+    if (gesture.unitId && this.selectForOrder(gesture.unitId)) return;
+    this.commandPanel.hint("Pick an order first, then tap the map. Tap one of your bots to order only that bot.");
   }
 
   selectForOrder(unitId) {
     const selection = orderSelectionForUnit(unitId, this.orderRoster);
     if (!selection || !this.commandPanel) return false;
-    this.commandPanel.setSelection(selection);
+    this.commandPanel.toggleUnit(unitId);
     return true;
+  }
+
+  /** Ids that get a selection ring: the picked bots, or the whole squad for All. */
+  selectedUnitIds() {
+    const view = this.commandPanel?.getViewModel?.();
+    if (!view) return [];
+    if (view.selection.kind === "units") return view.selection.unitIds;
+    return view.units.list.filter((unit) => unit.selectable !== false).map((unit) => unit.id);
+  }
+
+  onPanelChange(view) {
+    if (this.canvas) this.canvas.dataset.armed = view.step === "target" ? "true" : "false";
+  }
+
+  onKeyDown(event) {
+    if (!this.commandPanel || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const tag = event.target && event.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (event.key === "Escape") {
+      this.commandPanel.cancelOrder();
+      return;
+    }
+    if (/^[1-9]$/.test(event.key)) {
+      const order = this.commandPanel.getViewModel().orderButtons[Number(event.key) - 1];
+      if (order) this.commandPanel.chooseOrder(order.id);
+    }
   }
 
   offerMapTarget(screenX, screenY) {
@@ -187,8 +220,111 @@ export class Game {
     this.bindCommandShell(shell);
     this.commandPanel = mountCommandPanel(dock, {
       onCommand: (payload) => this.sendCommand(payload),
+      onChange: (view) => this.onPanelChange(view),
       layout: "auto",
     });
+  }
+
+  remountCommandPanel() {
+    this.commandPanel?.destroy?.();
+    this.commandPanel = null;
+    this.orderRoster = null;
+    this.lastCommandPatch = null;
+    this.lastCommandResult = null;
+    this.mountCommandPanel();
+  }
+
+  /** Join (or switch to) a team. Only `red` and `bot` are sent; the server rejects anything else. */
+  joinTeam(team) {
+    const next = normalizeTeamId(team);
+    if (!next) return false;
+    try {
+      window.localStorage?.setItem(LAST_TEAM_KEY, next);
+    } catch {
+      // Private mode can refuse storage. The choice still applies to this tab.
+    }
+    this.hideTeamPicker();
+    if (this.desiredTeam === next && this.playerId) return true;
+    const switching = this.playerId != null || this.ws != null;
+    this.desiredTeam = next;
+    this.playerId = null;
+    this.team = null;
+    this.map = null;
+    this.state = null;
+    this.camera = null;
+    this.bounds = null;
+    this.sentCommands = [];
+    this.publishTeam();
+    if (switching) this.remountCommandPanel();
+    this.reconnectNow();
+    return true;
+  }
+
+  reconnectNow() {
+    const old = this.ws;
+    this.ws = null;
+    if (old) {
+      try {
+        old.close();
+      } catch {
+        // Already closing.
+      }
+    }
+    this.reconnectAttempt = 0;
+    this.connect();
+  }
+
+  bindTeamPicker() {
+    const pick = document.getElementById("team-pick");
+    if (pick && !pick.dataset.bound) {
+      pick.dataset.bound = "true";
+      pick.addEventListener("click", (event) => {
+        const button = event.target.closest?.("[data-team]");
+        if (button && pick.contains(button)) this.joinTeam(button.getAttribute("data-team"));
+      });
+    }
+    const change = document.getElementById("switch-team");
+    if (change && !change.dataset.bound) {
+      change.dataset.bound = "true";
+      change.addEventListener("click", () => this.showTeamPicker());
+    }
+  }
+
+  showTeamPicker(error = "") {
+    const pick = document.getElementById("team-pick");
+    if (!pick) return;
+    let last = null;
+    try {
+      last = normalizeTeamId(window.localStorage?.getItem(LAST_TEAM_KEY));
+    } catch {
+      last = null;
+    }
+    const current = this.desiredTeam || last;
+    for (const button of pick.querySelectorAll("[data-team]")) {
+      button.dataset.last = button.getAttribute("data-team") === current ? "true" : "false";
+    }
+    const errorEl = document.getElementById("pick-error");
+    if (errorEl) errorEl.textContent = error;
+    pick.hidden = false;
+    const focus = pick.querySelector(`[data-team="${current || "red"}"]`);
+    focus?.focus?.();
+  }
+
+  hideTeamPicker() {
+    const pick = document.getElementById("team-pick");
+    if (pick) pick.hidden = true;
+  }
+
+  publishTeam() {
+    const badge = document.getElementById("team-badge");
+    const name = document.getElementById("team-name");
+    const team = this.team || this.desiredTeam;
+    if (badge) {
+      badge.hidden = !team;
+      if (team) badge.dataset.team = team;
+    }
+    if (name) name.textContent = team ? `${teamLabel(team)} team` : "";
+    this.updateScore();
   }
 
   screenPoint(worldX, worldY) {
@@ -210,21 +346,22 @@ export class Game {
     this.linkState = "connecting";
     this.updateStatus("Connecting to " + wsUrl);
 
-    this.ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    this.ws = ws;
+    const current = () => this.ws === ws;
 
-    this.ws.addEventListener("open", () => {
+    ws.addEventListener("open", () => {
+      if (!current()) return;
       this.reconnectAttempt = 0;
       this.linkState = "open";
       this.noteFrame("open");
       this.updateStatus("Connected");
-      this.send({
-        type: "join",
-        name: "Player" + Math.floor(Math.random() * 1000),
-        kind: "human",
-      });
+      const join = joinMessage({ name: this.playerName, team: this.desiredTeam });
+      if (join) this.send(join);
     });
 
-    this.ws.addEventListener("message", (event) => {
+    ws.addEventListener("message", (event) => {
+      if (!current()) return;
       try {
         const msg = JSON.parse(event.data);
         this.noteFrame(msg.type || "unknown");
@@ -234,18 +371,23 @@ export class Game {
       }
     });
 
-    this.ws.addEventListener("close", () => {
+    ws.addEventListener("close", () => {
+      if (!current()) return;
       this.linkState = "closed";
       this.noteFrame("close");
+      this.playerId = null;
       this.commandPanel?.cancelPendingTransport?.();
       if (this.stopped) return;
       this.reconnectAttempt++;
       const wait = Math.min(5000, 500 * this.reconnectAttempt);
       this.updateStatus(`Disconnected. Reconnecting in ${wait}ms`);
-      setTimeout(() => this.connect(), wait);
+      setTimeout(() => {
+        if (current()) this.connect();
+      }, wait);
     });
 
-    this.ws.addEventListener("error", (err) => {
+    ws.addEventListener("error", (err) => {
+      if (!current()) return;
       this.linkState = "error";
       this.noteFrame("error");
       console.error("WebSocket error:", err);
@@ -259,8 +401,19 @@ export class Game {
       this.playerId = msg.playerId;
       this.team = msg.team;
       this.map = msg.map;
+      // Fresh join: open on this team's base, not wherever the last team was.
+      this.camera = null;
       this.setupCanvas();
+      this.publishTeam();
+      this.commandPanel?.update({ team: { id: msg.team, label: teamLabel(msg.team) || msg.team } });
       this.updateStatus(`Joined as ${this.team} team`);
+    } else if (msg.type === "join_rejected") {
+      this.updateStatus(`Join rejected: ${msg.reason}`);
+      if (msg.reason === "invalid_team") {
+        this.desiredTeam = null;
+        this.publishTeam();
+        this.showTeamPicker("The server did not accept that team. Pick Red or Bot.");
+      }
     } else if (msg.type === "state") {
       this.state = msg;
       this.score = msg.score;
@@ -277,7 +430,7 @@ export class Game {
       this.score = msg.score;
       this.updateScore();
     } else if (msg.type === "matchEnd") {
-      this.updateStatus(`${msg.winner} team wins! New round starting...`);
+      this.updateStatus(winnerText(msg.winner, this.team));
     } else if (msg.type === "newMap") {
       this.map = msg.map;
       this.camera = null;
@@ -292,7 +445,7 @@ export class Game {
 
   updateScore() {
     const scoreEl = document.getElementById("score");
-    if (scoreEl) scoreEl.textContent = `Red ${this.score.red} - ${this.score.bot} Bot`;
+    if (scoreEl) scoreEl.textContent = scoreText(this.score, this.team);
   }
 
   updateStatus(text) {
@@ -331,7 +484,7 @@ export class Game {
       ctx.fillStyle = "#fff";
       ctx.font = "20px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("Waiting for game...", width / 2, height / 2);
+      ctx.fillText(this.desiredTeam ? "Waiting for game..." : "Choose a team to join", width / 2, height / 2);
       this.publishFog(describeFog(this.state));
       return;
     }
@@ -361,15 +514,12 @@ export class Game {
     }
 
     const roster = unitsFromState(this.state);
-    if (this.selectedUnitId != null && !roster.units.some((unit) => unit && unit.id === this.selectedUnitId)) {
-      this.selectedUnitId = null;
-    }
     this.drawFlags(ctx, time, proof);
     this.drawUnits(ctx, time, proof);
     const overlay = renderUnitOverlay({
       nowMs: time,
       viewerTeam: this.team,
-      selectedUnitId: this.selectedUnitId,
+      selectedUnitIds: this.selectedUnitIds(),
       units: roster.units,
       presentation: presentationFromUnits(roster.units),
       mapPings: mapPingsFromState(this.state),
@@ -485,7 +635,12 @@ export class Game {
     const search = typeof location !== "undefined" ? location.search : "";
     applyDebugOverlay(typeof document !== "undefined" ? document.body : null, debugOverlayEnabled(search));
     this.mountCommandPanel();
-    this.connect();
+    this.bindTeamPicker();
+    this.onKey = (event) => this.onKeyDown(event);
+    window.addEventListener("keydown", this.onKey);
+    const linked = teamFromSearch(search);
+    if (linked) this.joinTeam(linked);
+    else this.showTeamPicker();
     const loop = () => {
       if (this.stopped) return;
       this.render();
@@ -500,6 +655,8 @@ export class Game {
     this.unmountCamera = null;
     this.commandPanel?.destroy?.();
     this.commandPanel = null;
+    if (this.onKey) window.removeEventListener("keydown", this.onKey);
+    this.onKey = null;
     if (this.shellLayout) {
       window.removeEventListener("resize", this.shellLayout);
       window.removeEventListener("orientationchange", this.shellLayout);

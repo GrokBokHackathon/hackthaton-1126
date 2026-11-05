@@ -1,9 +1,12 @@
-// Isolated command panel. Presentation only.
-// The match server does not implement command messages yet.
+// Command panel. Presentation only.
 // Costs, cooldowns, and legality are displayed from an injected snapshot.
 // Missing snapshot values stay unknown and are not filled in here.
+//
+// Flow: the whole squad is picked by default. Tap a bot to narrow it down,
+// tap an order, then tap the map. Orders with needsTarget: false (Beer)
+// are sent as soon as they are tapped.
 
-export const COMMAND_PANEL_VERSION = 1;
+export const COMMAND_PANEL_VERSION = 2;
 
 export const COMMAND_PANEL_INTEGRATION = Object.freeze({
   wiredToServer: false,
@@ -12,14 +15,15 @@ export const COMMAND_PANEL_INTEGRATION = Object.freeze({
   resultTypes: Object.freeze(["command_ack", "command_rejected"]),
 });
 
-/** Issue 9 order buttons. Frames only — no command-point costs. */
+/** Order buttons. Frames and copy only — command-point costs come from the server. */
 export const COMMAND_ORDERS = Object.freeze([
-  Object.freeze({ id: "rally", label: "Rally", frame: "ord_rally" }),
-  Object.freeze({ id: "scout", label: "Scout", frame: "ord_scout" }),
-  Object.freeze({ id: "defend", label: "Defend", frame: "ord_defend" }),
-  Object.freeze({ id: "escort", label: "Escort", frame: "ord_escort" }),
-  Object.freeze({ id: "attack", label: "Attack", frame: "ord_attack" }),
-  Object.freeze({ id: "tag", label: "Tag", frame: "ord_tag" }),
+  Object.freeze({ id: "rally", label: "Rally", frame: "ord_rally", hint: "Regroup at a spot", needsTarget: true }),
+  Object.freeze({ id: "scout", label: "Scout", frame: "ord_scout", hint: "Explore, even into fog", needsTarget: true }),
+  Object.freeze({ id: "defend", label: "Defend", frame: "ord_defend", hint: "Hold a spot", needsTarget: true }),
+  Object.freeze({ id: "escort", label: "Escort", frame: "ord_escort", hint: "Cover a spot or carrier", needsTarget: true }),
+  Object.freeze({ id: "attack", label: "Attack", frame: "ord_attack", hint: "Push to a spot", needsTarget: true }),
+  Object.freeze({ id: "tag", label: "Tag", frame: "ord_tag", hint: "Hunt where you can see", needsTarget: true }),
+  Object.freeze({ id: "beer", label: "Beer", frame: "ord_beer", hint: "Squad speed boost, once a round", needsTarget: false }),
 ]);
 
 export const COMMAND_FLOW_STEPS = Object.freeze(["select", "order", "target"]);
@@ -64,6 +68,7 @@ export const PLACEHOLDER_ASSETS = Object.freeze({
     "ord_escort",
     "ord_attack",
     "ord_tag",
+    "ord_beer",
     "btn_disabled",
     "pip_full",
     "pip_empty",
@@ -76,17 +81,27 @@ export const PLACEHOLDER_ASSETS = Object.freeze({
 
 export const SERVER_STATE_FIELDS = Object.freeze({
   units: "array of { id, name?, selectable? }. Omit when the roster is unknown. Empty array means a known empty roster.",
-  budget: "{ current: number, cap: number }. Omit either number and the readout stays unknown. This panel does not compare cost with budget.",
+  budget: "{ current: number, cap: number }. Omit either number and the readout stays unknown.",
   orderCount: "{ used: number, max: number }. Omit either number and the counter stays unknown.",
   capabilities: "{ orders: array or id-keyed object of { id, label?, frame?, cost?, enabled?, disabledReason?, cooldown? } }. enabled must be true to allow an order. cooldown is { remainingMs, durationMs } or omitted.",
   commandResult: "{ type: 'command_ack' | 'command_rejected', seq?: number, reason?: string }.",
   nextSeq: "positive integer. Passing it hands sequence numbers to the caller. Until then this panel assigns a local correlation seq.",
+  team: "{ id: string, label?: string } for the squad this commander leads, or null.",
 });
 
 const LOCAL_REASON_TEXT = Object.freeze({
   unknown: "Waiting for the server",
   unavailable: "Waiting for the server",
+  invalid_target: "Outside the map",
 });
+
+const TARGET_RULE_TEXT = Object.freeze({
+  scout: "Any tile, even in the fog.",
+  tag: "Only a tile you can see right now.",
+});
+const DEFAULT_TARGET_RULE = "Any tile you have explored.";
+
+const SECTION_KEYS = Object.freeze(["status", "who", "prompt", "orders"]);
 
 let mountSerial = 0;
 
@@ -138,12 +153,15 @@ export function layoutForViewport({ width, height } = {}) {
   };
 }
 
-export function buildCommandPayload({ seq, order, selection, target } = {}) {
+export function buildCommandPayload({ seq, order, selection, target, needsTarget = true } = {}) {
   if (!Number.isInteger(seq) || seq < 1) {
     return { ok: false, error: "seq_unavailable" };
   }
   if (typeof order !== "string" || order.length === 0) {
     return { ok: false, error: "order_unavailable" };
+  }
+  if (needsTarget === false) {
+    return { ok: true, payload: { type: "command", seq, order, all: true } };
   }
   const rejected = targetIsRejected(target, undefined);
   if (target == null || rejected.rejected) {
@@ -169,18 +187,22 @@ export function buildCommandPayload({ seq, order, selection, target } = {}) {
   return { ok: true, payload };
 }
 
+const ALL = Object.freeze({ kind: "all", unitIds: Object.freeze([]) });
+
 export function createCommandSession({ onCommand } = {}) {
   let destroyed = false;
   let seqMode = "local";
   let nextSeq = 1;
-  let selection = { kind: "none", unitIds: [] };
-  let step = "select";
+  let selection = { kind: "all", unitIds: [] };
+  let step = "order";
   let orderId = null;
   let pendingSeq = null;
+  let pendingOrderId = null;
   let units = normalizeUnits(undefined);
   let budget = normalizePair(undefined, "current", "cap");
   let orderCount = normalizePair(undefined, "used", "max");
   let capabilities = normalizeCapabilities(undefined);
+  let team = null;
   let cursor = "default";
   let targetRejection = null;
   let emote = { active: false, frame: "emote_broke", text: "" };
@@ -192,7 +214,7 @@ export function createCommandSession({ onCommand } = {}) {
   };
   let notice = {
     channel: "polite",
-    text: "Select a bot or All, then an order, then a target.",
+    text: "Pick an order, then tap the map. Tap a bot first to order just that bot.",
   };
   let lastPayload = null;
 
@@ -200,46 +222,59 @@ export function createCommandSession({ onCommand } = {}) {
     return { ok: false, error: "destroyed" };
   }
 
-  function viewOrder(entry) {
-    return presentOrder(entry, capabilities);
-  }
-
   function findOrder(id) {
     return getViewModel().orderButtons.find((order) => order.id === id) || null;
   }
 
-  function getViewModel() {
+  function orderCatalog() {
     const catalog = COMMAND_ORDERS.map((entry) => {
       const capability =
         capabilities.status === "supplied"
           ? capabilities.list.find((item) => item.id === entry.id) || null
           : null;
       return {
-        id: entry.id,
-        label: capability?.label || entry.label,
+        ...entry,
         frame: capability?.frame || entry.frame,
         catalog: true,
       };
     });
+    if (capabilities.status !== "supplied") return catalog;
     const seen = new Set(catalog.map((entry) => entry.id));
-    const extras = [];
-    if (capabilities.status === "supplied") {
-      for (const capability of capabilities.list) {
-        if (seen.has(capability.id)) continue;
-        seen.add(capability.id);
-        extras.push({
-          id: capability.id,
-          label: capability.label || capability.id,
-          frame: capability.frame || "",
-          catalog: false,
-        });
-      }
+    for (const capability of capabilities.list) {
+      if (seen.has(capability.id)) continue;
+      seen.add(capability.id);
+      catalog.push({
+        id: capability.id,
+        label: capability.label || titleCase(capability.id),
+        frame: capability.frame || "",
+        hint: "",
+        needsTarget: true,
+        catalog: false,
+      });
     }
-    const orderButtons = catalog.concat(extras).map((entry) => viewOrder(entry));
+    return catalog;
+  }
+
+  function unitName(id) {
+    const unit = units.list.find((item) => item.id === id);
+    return unit ? unit.shortName : id;
+  }
+
+  function selectionLabel() {
+    if (selection.kind === "all") return "Whole squad";
+    return selection.unitIds.map(unitName).join(" + ");
+  }
+
+  function getViewModel() {
+    const orderButtons = orderCatalog().map((entry) => ({
+      ...presentOrder(entry, capabilities),
+      armed: orderId === entry.id && (step === "target" || step === "pending"),
+    }));
     const unitList = units.list.map((unit) => ({
       ...unit,
       selected: selection.kind === "units" && selection.unitIds.includes(unit.id),
     }));
+    const armedOrder = orderId ? orderButtons.find((order) => order.id === orderId) || null : null;
     return {
       version: COMMAND_PANEL_VERSION,
       destroyed,
@@ -250,10 +285,14 @@ export function createCommandSession({ onCommand } = {}) {
         kind: selection.kind,
         unitIds: selection.unitIds.slice(),
       },
+      selectionLabel: selectionLabel(),
       orderId,
+      armedOrder: armedOrder ? { id: armedOrder.id, label: armedOrder.label } : null,
+      targetRule: orderId ? TARGET_RULE_TEXT[orderId] || DEFAULT_TARGET_RULE : null,
       cursor,
       cursorFrame: cursor === "invalid" ? "cursor_invalid" : null,
       rulesStatus: capabilities.status === "supplied" ? "supplied" : "unknown",
+      team: team ? { ...team } : null,
       budget: displayPair(budget, "current", "cap"),
       orderCount: displayPair(orderCount, "used", "max"),
       units: { status: units.status, list: unitList },
@@ -275,6 +314,17 @@ export function createCommandSession({ onCommand } = {}) {
     notice = { channel, text };
   }
 
+  function clearEmote() {
+    emote = { active: false, frame: "emote_broke", text: "" };
+  }
+
+  function disarm() {
+    orderId = null;
+    targetRejection = null;
+    cursor = "default";
+    if (step !== "pending") step = "order";
+  }
+
   function selectionBlocked() {
     if (destroyed) return dead();
     if (step === "pending") {
@@ -285,20 +335,29 @@ export function createCommandSession({ onCommand } = {}) {
   }
 
   function applySelection(next) {
-    selection = next;
-    orderId = null;
+    selection = next.kind === "all" ? { kind: "all", unitIds: [] } : next;
     targetRejection = null;
-    cursor = "default";
-    emote = { active: false, frame: "emote_broke", text: "" };
-    if (next.kind === "none") {
-      step = "select";
-      setNotice("polite", "Selection cleared.");
-      return { ok: true };
+    if (step === "target") cursor = "target";
+    clearEmote();
+    const label = selectionLabel();
+    if (orderId) {
+      setNotice("polite", `${label} selected. Tap the map to send the order.`);
+    } else {
+      setNotice("polite", `${label} selected. Pick an order.`);
     }
-    step = "order";
-    const label = next.kind === "all" ? "All" : next.unitIds.join(", ");
-    setNotice("polite", `${label} selected. Choose an order.`);
     return { ok: true };
+  }
+
+  function checkSelectable(ids) {
+    const blockedUnit = ids.find((id) => {
+      const unit = units.list.find((item) => item.id === id);
+      return unit && unit.selectable === false;
+    });
+    if (blockedUnit) {
+      setNotice("assertive", "Server: that unit cannot be selected.");
+      return { ok: false, error: "unit_not_selectable" };
+    }
+    return null;
   }
 
   function setSelection(input) {
@@ -315,16 +374,27 @@ export function createCommandSession({ onCommand } = {}) {
       return parsed;
     }
     if (parsed.selection.kind === "units") {
-      const blockedUnit = parsed.selection.unitIds.find((id) => {
-        const unit = units.list.find((item) => item.id === id);
-        return unit && unit.selectable === false;
-      });
-      if (blockedUnit) {
-        setNotice("assertive", "Server: that unit cannot be selected.");
-        return { ok: false, error: "unit_not_selectable" };
-      }
+      const notSelectable = checkSelectable(parsed.selection.unitIds);
+      if (notSelectable) return notSelectable;
     }
     return applySelection(parsed.selection);
+  }
+
+  function toggleUnit(id) {
+    const blocked = selectionBlocked();
+    if (blocked) return blocked;
+    if (typeof id !== "string" || id.length === 0) {
+      setNotice("assertive", "Selection is not usable.");
+      return { ok: false, error: "invalid_selection" };
+    }
+    const current = selection.kind === "units" ? selection.unitIds : [];
+    if (current.includes(id)) {
+      const rest = current.filter((item) => item !== id);
+      return applySelection(rest.length ? { kind: "units", unitIds: rest } : ALL);
+    }
+    const notSelectable = checkSelectable([id]);
+    if (notSelectable) return notSelectable;
+    return applySelection({ kind: "units", unitIds: current.concat(id) });
   }
 
   function chooseOrder(id) {
@@ -333,25 +403,41 @@ export function createCommandSession({ onCommand } = {}) {
       setNotice("assertive", "Command pending.");
       return { ok: false, error: "pending" };
     }
-    if (selection.kind === "none") {
-      setNotice("polite", "Select a bot or All first.");
-      return { ok: false, error: "selection_unavailable" };
-    }
     const order = findOrder(id);
     if (!order) {
       setNotice("assertive", "That order is not on the panel.");
       return { ok: false, error: "unknown_order" };
     }
+    if (step === "target" && orderId === order.id) {
+      disarm();
+      setNotice("polite", `${order.label} cancelled.`);
+      return { ok: true, cancelled: true };
+    }
     if (!order.enabled) {
       setNotice("assertive", order.reasonText || rejectionText("unknown"));
       return { ok: false, error: "order_not_enabled", reason: order.reasonCode };
     }
+    clearEmote();
+    targetRejection = null;
+    if (!order.needsTarget) {
+      orderId = order.id;
+      const sent = send(order, null);
+      if (!sent.ok) orderId = null;
+      return sent;
+    }
     orderId = order.id;
     step = "target";
     cursor = "target";
-    targetRejection = null;
-    emote = { active: false, frame: "emote_broke", text: "" };
-    setNotice("polite", "Choose a target.");
+    setNotice("polite", `Tap the map to send ${order.label} to ${selectionLabel()}.`);
+    return { ok: true };
+  }
+
+  function cancelOrder() {
+    if (destroyed) return dead();
+    if (step !== "target" || !orderId) return { ok: false, error: "nothing_armed" };
+    const label = findOrder(orderId)?.label || orderId;
+    disarm();
+    setNotice("polite", `${label} cancelled.`);
     return { ok: true };
   }
 
@@ -362,14 +448,14 @@ export function createCommandSession({ onCommand } = {}) {
       return { ok: false, error: "pending" };
     }
     if (step !== "target" || !orderId) {
-      setNotice("polite", "Choose a bot or All, then an order, before a target.");
+      setNotice("polite", "Pick an order first, then tap the map.");
       return { ok: false, error: "flow_incomplete" };
     }
     const rejected = targetIsRejected(target, meta);
     if (target == null || rejected.rejected) {
       const reason =
         typeof rejected.reason === "string" && rejected.reason.trim()
-          ? rejected.reason.trim()
+          ? rejectionText(rejected.reason.trim())
           : "Invalid target";
       cursor = "invalid";
       targetRejection = reason;
@@ -379,9 +465,7 @@ export function createCommandSession({ onCommand } = {}) {
     const order = findOrder(orderId);
     if (!order || !order.enabled) {
       const text = order?.reasonText || rejectionText("unknown");
-      orderId = null;
-      step = "order";
-      cursor = "default";
+      disarm();
       setNotice("assertive", text);
       return { ok: false, error: "order_not_enabled" };
     }
@@ -391,6 +475,10 @@ export function createCommandSession({ onCommand } = {}) {
       return armed;
     }
     selection = armed.selection;
+    return send(order, target);
+  }
+
+  function send(order, target) {
     if (typeof onCommand !== "function") {
       setNotice("assertive", "Command handler is not attached. Nothing was sent.");
       return { ok: false, error: "handler_missing" };
@@ -402,9 +490,10 @@ export function createCommandSession({ onCommand } = {}) {
     }
     const built = buildCommandPayload({
       seq,
-      order: orderId,
+      order: order.id,
       selection,
       target,
+      needsTarget: order.needsTarget,
     });
     if (!built.ok) {
       setNotice("assertive", "Command could not be built.");
@@ -423,15 +512,16 @@ export function createCommandSession({ onCommand } = {}) {
     }
     lastPayload = built.payload;
     pendingSeq = seq;
+    pendingOrderId = order.id;
     step = "pending";
     cursor = "default";
     targetRejection = null;
-    emote = { active: false, frame: "emote_broke", text: "" };
+    clearEmote();
     commandStatus = {
       phase: "pending",
       seq,
       reason: null,
-      text: "Command pending.",
+      text: `Sending ${order.label}…`,
     };
     setNotice("polite", "Command pending.");
     return { ok: true, payload: built.payload };
@@ -449,9 +539,10 @@ export function createCommandSession({ onCommand } = {}) {
     return seq;
   }
 
-  function finishPending(matched) {
-    if (!matched) return;
-    pendingSeq = null;
+  function sentLabel() {
+    const id = pendingOrderId || orderId;
+    const entry = id ? orderCatalog().find((item) => item.id === id) : null;
+    return entry ? entry.label : "Order";
   }
 
   function applyResult(result) {
@@ -459,20 +550,23 @@ export function createCommandSession({ onCommand } = {}) {
     const seq = Number.isInteger(result.seq) ? result.seq : null;
     const matched = pendingSeq == null || seq == null || seq === pendingSeq;
     if (result.type === "command_ack") {
-      emote = { active: false, frame: "emote_broke", text: "" };
+      clearEmote();
+      const label = sentLabel();
+      const who = lastPayload && lastPayload.order === "beer" ? "Whole squad" : selectionLabel();
       commandStatus = {
         phase: "acknowledged",
         seq,
         reason: null,
-        text: "Command acknowledged.",
+        text: `${label} sent to ${who}.`,
       };
       setNotice("polite", "Command acknowledged.");
       if (matched) {
-        finishPending(true);
+        pendingSeq = null;
+        pendingOrderId = null;
         orderId = null;
         targetRejection = null;
         cursor = "default";
-        step = selection.kind === "none" ? "select" : "order";
+        step = "order";
       }
       return;
     }
@@ -492,17 +586,18 @@ export function createCommandSession({ onCommand } = {}) {
       };
       setNotice("assertive", text);
       if (matched) {
-        finishPending(true);
+        pendingSeq = null;
         const targetReason = typeof reason === "string" && reason.startsWith("target_");
-        if (targetReason) {
+        if (targetReason && orderId) {
           step = "target";
           cursor = "invalid";
           targetRejection = text;
         } else {
+          pendingOrderId = null;
           orderId = null;
           targetRejection = null;
           cursor = "default";
-          step = selection.kind === "none" ? "select" : "order";
+          step = "order";
         }
       }
     }
@@ -518,14 +613,20 @@ export function createCommandSession({ onCommand } = {}) {
   }
 
   function disarmInvalidSelection() {
-    selection = { kind: "none", unitIds: [] };
+    selection = { kind: "all", unitIds: [] };
     if (step === "pending") return;
+    const wasArmed = Boolean(orderId);
     orderId = null;
     cursor = "default";
     targetRejection = null;
-    emote = { active: false, frame: "emote_broke", text: "" };
-    step = "select";
-    setNotice("assertive", "Selection is no longer on the server roster.");
+    clearEmote();
+    step = "order";
+    setNotice(
+      "assertive",
+      wasArmed
+        ? "That bot left the squad. Order cancelled, whole squad selected."
+        : "That bot left the squad. Whole squad selected."
+    );
   }
 
   function reconcileArmedSelection() {
@@ -542,7 +643,7 @@ export function createCommandSession({ onCommand } = {}) {
     }
     selection = { kind: "units", unitIds: kept };
     if (step !== "pending") {
-      setNotice("polite", `${kept.join(", ")} still selected.`);
+      setNotice("polite", `${selectionLabel()} still selected.`);
     }
   }
 
@@ -558,14 +659,11 @@ export function createCommandSession({ onCommand } = {}) {
   }
 
   function revalidateOrder() {
-    if (destroyed || step === "pending" || !orderId) return;
+    if (destroyed || step !== "target" || !orderId) return;
     const order = findOrder(orderId);
     if (order && order.enabled) return;
     const text = order?.reasonText || rejectionText("unknown");
-    orderId = null;
-    cursor = "default";
-    targetRejection = null;
-    step = selection.kind === "none" ? "select" : "order";
+    disarm();
     setNotice("assertive", text);
   }
 
@@ -575,6 +673,7 @@ export function createCommandSession({ onCommand } = {}) {
       if (!patch || typeof patch !== "object") {
         return { ok: false, error: "invalid_patch" };
       }
+      if ("team" in patch) team = normalizeTeam(patch.team);
       if ("units" in patch) {
         units = normalizeUnits(patch.units);
         reconcileArmedSelection();
@@ -606,11 +705,18 @@ export function createCommandSession({ onCommand } = {}) {
       }
       return setSelection({ unitIds: [id] });
     },
+    toggleUnit,
     clearSelection() {
       return setSelection(null);
     },
     chooseOrder,
+    cancelOrder,
     setTarget,
+    hint(text) {
+      if (destroyed) return dead();
+      if (typeof text === "string" && text) setNotice("polite", text);
+      return { ok: true };
+    },
     destroy() {
       destroyed = true;
       setNotice("polite", "Command panel removed.");
@@ -621,6 +727,7 @@ export function createCommandSession({ onCommand } = {}) {
       if (destroyed) return dead();
       const wasPending = step === "pending" || pendingSeq != null;
       pendingSeq = null;
+      pendingOrderId = null;
       commandStatus = {
         phase: "local_cancelled",
         seq: null,
@@ -628,8 +735,10 @@ export function createCommandSession({ onCommand } = {}) {
         text: "Command was not sent. The connection closed.",
       };
       if (wasPending) {
-        step = orderId ? "target" : selection.kind === "none" ? "select" : "order";
-        cursor = orderId ? "target" : "default";
+        const armed = orderId && findOrder(orderId)?.needsTarget !== false;
+        if (!armed) orderId = null;
+        step = armed ? "target" : "order";
+        cursor = armed ? "target" : "default";
         setNotice("assertive", "Command was not sent. The connection closed.");
       }
       return { ok: true, cancelled: wasPending, local: true };
@@ -637,66 +746,116 @@ export function createCommandSession({ onCommand } = {}) {
   };
 }
 
-export function viewModelToHtml(viewModel, { idPrefix = "cp" } = {}) {
-  const rules =
-    viewModel.rulesStatus === "supplied"
-      ? "Command rules: supplied by server"
-      : "Command rules: unknown";
-  const steps = COMMAND_FLOW_STEPS.map((name) => {
-    const current =
-      viewModel.step === name || (viewModel.step === "pending" && name === "target");
-    const label = name[0].toUpperCase() + name.slice(1);
-    return `<li data-step="${name}"${current ? ' aria-current="step"' : ""}>${label}</li>`;
-  }).join("");
+/** Panel markup split into sections so a mounted panel only repaints what changed. */
+export function viewModelToHtml(viewModel, options = {}) {
+  const sections = renderSections(viewModel, options);
+  return SECTION_KEYS.map(
+    (key) => `<div class="cp-section cp-section--${key}" data-section="${key}">${sections[key]}</div>`
+  ).join("");
+}
 
-  const pips = renderPips(viewModel.budget);
+function renderSections(viewModel, { idPrefix = "cp" } = {}) {
+  return {
+    status: renderStatus(viewModel),
+    who: renderWho(viewModel, idPrefix),
+    prompt: renderPrompt(viewModel),
+    orders: `<div class="cp-order-grid" role="group" aria-label="Orders">${viewModel.orderButtons
+      .map((order, index) => renderOrderButton(order, idPrefix, index))
+      .join("")}</div>`,
+  };
+}
+
+function renderStatus(viewModel) {
+  const team = viewModel.team
+    ? `<span class="cp-team" data-team="${escapeHtml(viewModel.team.id)}"><span class="cp-team-dot" aria-hidden="true"></span>${escapeHtml(viewModel.team.label)} squad</span>`
+    : "";
+  return `<div class="cp-readout" data-rules="${viewModel.rulesStatus}">
+      ${team}
+      <div class="cp-budget" data-status="${viewModel.budget.status}" title="Command points. Orders cost CP; CP refills over time.">
+        <span class="cp-frame" data-frame="cp_coin_16" data-art="placeholder" aria-hidden="true">CP</span>
+        <span class="cp-visually-hidden">Command points</span>
+        <span class="cp-budget-value">${escapeHtml(viewModel.budget.text)}</span>
+        ${renderPips(viewModel.budget)}
+      </div>
+      <div class="cp-order-count" data-frame="orders_counter" data-art="placeholder" data-status="${viewModel.orderCount.status}" title="Orders used this round">
+        <span class="cp-order-count-label">Orders</span>
+        <span class="cp-order-count-value">${escapeHtml(viewModel.orderCount.text)}</span>
+      </div>
+    </div>`;
+}
+
+function renderWho(viewModel, idPrefix) {
+  const locked = viewModel.step === "pending";
   const units =
     viewModel.units.status === "supplied"
       ? viewModel.units.list
           .map((unit, index) => {
             const disabled = unit.selectable === false;
-            return `<button type="button" class="cp-unit" data-action="select-unit" data-unit-id="${escapeHtml(unit.id)}" data-key="unit:${escapeHtml(unit.id)}" aria-pressed="${unit.selected ? "true" : "false"}" aria-disabled="${disabled ? "true" : "false"}"${disabled ? ' aria-describedby="' + idPrefix + "-unit-" + index + '"' : ""}>${escapeHtml(unit.name)}</button>${disabled ? `<span id="${idPrefix}-unit-${index}" class="cp-visually-hidden">Server: that unit cannot be selected.</span>` : ""}`;
+            const describedId = `${idPrefix}-unit-${index}`;
+            return `<button type="button" class="cp-unit" data-action="toggle-unit" data-unit-id="${escapeHtml(unit.id)}" data-key="unit:${escapeHtml(unit.id)}" title="${escapeHtml(unit.name)}" aria-pressed="${unit.selected ? "true" : "false"}" aria-disabled="${disabled || locked ? "true" : "false"}"${disabled ? ` aria-describedby="${describedId}"` : ""}>${escapeHtml(unit.shortName)}</button>${disabled ? `<span id="${describedId}" class="cp-visually-hidden">Server: that unit cannot be selected.</span>` : ""}`;
           })
           .join("")
-      : `<p class="cp-units-unknown">Unit roster: unknown</p>`;
-
-  const orders = viewModel.orderButtons
-    .map((order, index) => renderOrderButton(order, idPrefix, index, viewModel.orderId))
-    .join("");
-
-  const targetText = targetLine(viewModel);
-  const pending =
-    viewModel.step === "pending"
-      ? `<p class="cp-pending" role="status">Command pending.</p>`
-      : "";
-
-  return `<header class="cp-header">
-      <h2 class="cp-title">Orders</h2>
-      <p class="cp-rules" data-rules="${viewModel.rulesStatus}">${escapeHtml(rules)}</p>
-    </header>
-    <div class="cp-readout">
-      <div class="cp-budget" data-status="${viewModel.budget.status}">
-        <span class="cp-frame" data-frame="cp_coin_16" data-art="placeholder"><span class="cp-visually-hidden">Command points placeholder</span><span aria-hidden="true">CP</span></span>
-        <span class="cp-visually-hidden">Command points</span>
-        <span class="cp-budget-value">${escapeHtml(viewModel.budget.text)}</span>
-        ${pips}
-      </div>
-      <div class="cp-order-count" data-frame="orders_counter" data-art="placeholder" data-status="${viewModel.orderCount.status}">
-        <span class="cp-order-count-label">Orders</span>
-        <span class="cp-order-count-value">${escapeHtml(viewModel.orderCount.text)}</span>
-      </div>
-    </div>
-    <ol class="cp-steps">${steps}</ol>
-    <p class="cp-target" data-cursor="${viewModel.cursor}" data-cursor-frame="${viewModel.cursorFrame || ""}">${escapeHtml(targetText)}</p>
-    ${pending}
-    ${statusLine(viewModel)}
-    <div class="cp-units" role="group" aria-label="Units">
-      <button type="button" class="cp-unit" data-action="select-all" data-key="all" aria-pressed="${viewModel.allSelected ? "true" : "false"}">All</button>
+      : `<span class="cp-units-unknown">Waiting for your squad…</span>`;
+  return `<div class="cp-units" role="group" aria-label="Who gets the order">
+      <span class="cp-label" aria-hidden="true">Who</span>
+      <button type="button" class="cp-unit cp-unit--all" data-action="select-all" data-key="all" aria-pressed="${viewModel.allSelected ? "true" : "false"}" aria-disabled="${locked ? "true" : "false"}">All</button>
       ${units}
-      <button type="button" class="cp-text-button" data-action="clear-selection" data-key="clear" aria-label="Clear selection">Clear</button>
-    </div>
-    <div class="cp-order-grid" role="group" aria-label="Orders">${orders}</div>
-    <p class="cp-art-note" title="${escapeHtml(PLACEHOLDER_ASSETS.note)}">Placeholder art. Final command images are not in this build.</p>`;
+    </div>`;
+}
+
+function renderPrompt(viewModel) {
+  const { tone, title, detail, cancel } = promptCopy(viewModel);
+  const cancelButton = cancel
+    ? `<button type="button" class="cp-cancel" data-action="cancel-order" data-key="cancel">Cancel</button>`
+    : "";
+  return `<div class="cp-prompt" data-tone="${tone}" data-step="${viewModel.step}" data-cursor="${viewModel.cursor}" data-cursor-frame="${viewModel.cursorFrame || ""}">
+      <div class="cp-prompt-copy">
+        <p class="cp-prompt-title">${escapeHtml(title)}</p>
+        ${detail ? `<p class="cp-prompt-detail">${escapeHtml(detail)}</p>` : ""}
+      </div>
+      ${cancelButton}
+    </div>`;
+}
+
+function promptCopy(viewModel) {
+  const who = viewModel.selectionLabel;
+  const status = viewModel.commandStatus;
+  if (viewModel.step === "pending") {
+    return { tone: "pending", title: status.text || "Command pending.", detail: "" };
+  }
+  if (viewModel.step === "target" && viewModel.armedOrder) {
+    if (viewModel.targetRejection.active) {
+      return {
+        tone: "invalid",
+        title: `Invalid target. ${viewModel.targetRejection.text}`,
+        detail: `Tap another spot for ${viewModel.armedOrder.label}. ${viewModel.targetRule || ""}`.trim(),
+        cancel: true,
+      };
+    }
+    return {
+      tone: "armed",
+      title: `Tap the map: ${viewModel.armedOrder.label} → ${who}`,
+      detail: viewModel.targetRule || "",
+      cancel: true,
+    };
+  }
+  if (viewModel.rulesStatus !== "supplied") {
+    return { tone: "unknown", title: "Waiting for the server…", detail: "Orders unlock when your squad reports in." };
+  }
+  if (status.phase === "rejected") {
+    return { tone: "rejected", title: `Rejected: ${status.text}`, detail: `Pick an order for ${who}.` };
+  }
+  if (status.phase === "acknowledged") {
+    return { tone: "ok", title: status.text, detail: `Next order for ${who}?` };
+  }
+  if (status.phase === "local_cancelled") {
+    return { tone: "rejected", title: status.text, detail: `Pick an order for ${who}.` };
+  }
+  return {
+    tone: "idle",
+    title: `Pick an order for ${who}`,
+    detail: "Then tap the map. Tap a bot first to order only that bot.",
+  };
 }
 
 export function paintCommandPanel(parts, viewModel, context = {}) {
@@ -707,10 +866,25 @@ export function paintCommandPanel(parts, viewModel, context = {}) {
   parts.root.dataset.rules = viewModel.rulesStatus;
   parts.root.dataset.art = "placeholder";
   parts.root.dataset.wired = "false";
+  if (viewModel.team) parts.root.dataset.team = viewModel.team.id;
+  else delete parts.root.dataset.team;
   if (typeof parts.root.setAttribute === "function") {
     parts.root.setAttribute("data-command-panel-version", String(COMMAND_PANEL_VERSION));
   }
-  parts.body.innerHTML = viewModelToHtml(viewModel, context);
+  let changed = false;
+  if (parts.sections) {
+    const html = renderSections(viewModel, context);
+    for (const key of SECTION_KEYS) {
+      const el = parts.sections[key];
+      if (!el || el.__cpHtml === html[key]) continue;
+      el.innerHTML = html[key];
+      el.__cpHtml = html[key];
+      changed = true;
+    }
+  } else {
+    parts.body.innerHTML = viewModelToHtml(viewModel, context);
+    changed = true;
+  }
   parts.emote.hidden = !viewModel.emote.active;
   parts.emote.textContent = viewModel.emote.active ? viewModel.emote.text : "";
   if (parts.emote.dataset) {
@@ -724,9 +898,11 @@ export function paintCommandPanel(parts, viewModel, context = {}) {
       viewModel.emote.active ? "Order rejected. emote_broke placeholder." : ""
     );
   }
-  parts.polite.textContent = viewModel.notice.channel === "polite" ? viewModel.notice.text : "";
-  parts.assertive.textContent =
-    viewModel.notice.channel === "assertive" ? viewModel.notice.text : "";
+  const polite = viewModel.notice.channel === "polite" ? viewModel.notice.text : "";
+  const assertive = viewModel.notice.channel === "assertive" ? viewModel.notice.text : "";
+  if (parts.polite.textContent !== polite) parts.polite.textContent = polite;
+  if (parts.assertive.textContent !== assertive) parts.assertive.textContent = assertive;
+  return changed;
 }
 
 export function applyCommandPanelShell(shell, mode) {
@@ -770,6 +946,14 @@ export function mountCommandPanel(container, options = {}) {
   emote.hidden = true;
   const body = doc.createElement("div");
   body.className = "cp-body";
+  const sections = {};
+  for (const key of SECTION_KEYS) {
+    const section = doc.createElement("div");
+    section.className = `cp-section cp-section--${key}`;
+    section.dataset.section = key;
+    body.appendChild(section);
+    sections[key] = section;
+  }
   const polite = doc.createElement("div");
   polite.className = "cp-live cp-live--polite";
   if (typeof polite.setAttribute === "function") polite.setAttribute("aria-live", "polite");
@@ -789,29 +973,62 @@ export function mountCommandPanel(container, options = {}) {
 
   let layoutMode = initialLayout(options);
   let onResize = null;
+  const onChange = typeof options.onChange === "function" ? options.onChange : null;
 
   function render() {
     const activeKey = focusedKey(doc, root);
     const viewModel = session.getViewModel();
     paintCommandPanel(
-      { root, body, emote, polite, assertive },
+      { root, body, sections, emote, polite, assertive },
       viewModel,
       { idPrefix: prefix, layout: layoutMode }
     );
     frame.dataset.layout = layoutMode;
     frame.dataset.emote = viewModel.emote.active ? "on" : "off";
-    restoreFocus(body, activeKey);
+    if (activeKey && !root.contains?.(doc.activeElement)) restoreFocus(body, activeKey);
+    if (onChange) onChange(viewModel);
   }
 
-  root.addEventListener("click", (event) => {
-    const button = findActionButton(event.target, root);
-    if (!button) return;
+  function act(button) {
     const action = button.getAttribute("data-action");
     if (action === "select-all") session.selectAll();
     else if (action === "clear-selection") session.clearSelection();
+    else if (action === "toggle-unit") session.toggleUnit(button.getAttribute("data-unit-id"));
     else if (action === "select-unit") session.selectUnit(button.getAttribute("data-unit-id"));
     else if (action === "choose-order") session.chooseOrder(button.getAttribute("data-order"));
+    else if (action === "cancel-order") session.cancelOrder();
+    else return;
     render();
+  }
+
+  // Server snapshots repaint sections between pointerdown and pointerup, which
+  // can swallow the click. A pointerup on a button with the same data-key as
+  // the pointerdown still counts.
+  let downKey = null;
+  let suppressClickUntil = 0;
+  root.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    downKey = findActionButton(event.target, root)?.getAttribute("data-key") || null;
+  });
+  root.addEventListener("pointercancel", () => {
+    downKey = null;
+  });
+  root.addEventListener("pointerup", (event) => {
+    const key = downKey;
+    downKey = null;
+    if (!key) return;
+    const button = findActionButton(event.target, root);
+    if (!button || button.getAttribute("data-key") !== key) return;
+    suppressClickUntil = Date.now() + 500;
+    act(button);
+  });
+  root.addEventListener("click", (event) => {
+    if (Date.now() < suppressClickUntil) {
+      suppressClickUntil = 0;
+      return;
+    }
+    const button = findActionButton(event.target, root);
+    if (button) act(button);
   });
 
   const host = options.window || (typeof globalThis !== "undefined" ? globalThis : null);
@@ -836,22 +1053,24 @@ export function mountCommandPanel(container, options = {}) {
 
   render();
 
+  function wrap(method) {
+    return (...args) => {
+      const result = session[method](...args);
+      render();
+      return result;
+    };
+  }
+
   return {
-    update(patch) {
-      const result = session.update(patch);
-      render();
-      return result;
-    },
-    setSelection(selection) {
-      const result = session.setSelection(selection);
-      render();
-      return result;
-    },
-    setTarget(target, meta) {
-      const result = session.setTarget(target, meta);
-      render();
-      return result;
-    },
+    update: wrap("update"),
+    setSelection: wrap("setSelection"),
+    toggleUnit: wrap("toggleUnit"),
+    selectAll: wrap("selectAll"),
+    chooseOrder: wrap("chooseOrder"),
+    cancelOrder: wrap("cancelOrder"),
+    setTarget: wrap("setTarget"),
+    hint: wrap("hint"),
+    cancelPendingTransport: wrap("cancelPendingTransport"),
     destroy() {
       const result = session.destroy();
       if (onResize && host && typeof host.removeEventListener === "function") {
@@ -870,11 +1089,6 @@ export function mountCommandPanel(container, options = {}) {
     },
     getLayout() {
       return layoutMode;
-    },
-    cancelPendingTransport() {
-      const result = session.cancelPendingTransport();
-      render();
-      return result;
     },
     root,
   };
@@ -920,36 +1134,48 @@ function baseOrder(entry, state) {
     id: entry.id,
     label: entry.label,
     frame: entry.frame,
+    hint: entry.hint || "",
+    needsTarget: entry.needsTarget !== false,
     catalog: entry.catalog !== false,
     cost: state.cost,
     costText: state.cost == null ? "unknown" : String(state.cost),
     enabled: state.enabled,
     reasonCode: state.reasonCode,
     reasonText,
+    shortReason: state.enabled ? "" : shortReason(state.reasonCode, state.cost, state.cooldown, reasonText),
     cooldown: state.cooldown,
   };
 }
 
-function renderOrderButton(order, idPrefix, index, selectedId) {
+function shortReason(code, cost, cooldown, fallback) {
+  if (code === "cooldown") {
+    return cooldown.status === "active" ? `Ready in ${formatSeconds(cooldown.remainingMs)}` : "Cooling down";
+  }
+  if (code === "not_enough_cp") return cost == null ? "Not enough CP" : `Need ${cost} CP`;
+  if (code === "already_used") return "Used this round";
+  if (code === "no_orders_left") return "No orders left";
+  if (code === "unknown" || code === "unavailable") return "Waiting for server";
+  return fallback;
+}
+
+function renderOrderButton(order, idPrefix, index) {
   const reasonId = `${idPrefix}-reason-${index}`;
   const sweep =
     order.cooldown.status === "active"
       ? `<span class="cp-order-sweep" aria-hidden="true" style="--cp-sweep:${order.cooldown.sweep}" data-remaining-ms="${order.cooldown.remainingMs}" data-duration-ms="${order.cooldown.durationMs}"></span>`
       : "";
-  const cooldownText =
-    order.cooldown.status === "active"
-      ? `<span class="cp-cooldown">Cooldown ${formatSeconds(order.cooldown.remainingMs)}</span>`
-      : order.cooldown.status === "unknown"
-        ? `<span class="cp-cooldown">Cooldown unknown</span>`
-        : "";
   const described = order.enabled ? "" : ` aria-describedby="${reasonId}"`;
   const disabledFrame = order.enabled ? "" : ' data-disabled-frame="btn_disabled"';
-  return `<button type="button" class="cp-order" data-action="choose-order" data-order="${escapeHtml(order.id)}" data-key="order:${escapeHtml(order.id)}" data-order-frame="${escapeHtml(order.frame)}" data-art="placeholder" data-cooldown="${order.cooldown.status}" aria-pressed="${selectedId === order.id ? "true" : "false"}" aria-disabled="${order.enabled ? "false" : "true"}"${described}${disabledFrame}>
+  const cost = order.cost == null ? "?" : order.costText;
+  const sub = order.enabled
+    ? `<span class="cp-order-hint">${escapeHtml(order.hint || (order.needsTarget ? "Tap the map" : ""))}</span>`
+    : `<span class="cp-order-reason" aria-hidden="true">${escapeHtml(order.shortReason)}</span><span id="${reasonId}" class="cp-visually-hidden">${escapeHtml(order.reasonText)}</span>`;
+  const key = index < 9 ? `<kbd class="cp-key" aria-hidden="true">${index + 1}</kbd>` : "";
+  return `<button type="button" class="cp-order" data-action="choose-order" data-order="${escapeHtml(order.id)}" data-key="order:${escapeHtml(order.id)}" data-order-frame="${escapeHtml(order.frame)}" data-art="placeholder" data-cooldown="${order.cooldown.status}" data-needs-target="${order.needsTarget ? "true" : "false"}" aria-pressed="${order.armed ? "true" : "false"}" aria-disabled="${order.enabled ? "false" : "true"}"${described}${disabledFrame}>
       ${sweep}
-      <span class="cp-order-label">${escapeHtml(order.label)}</span>
-      <span class="cp-order-cost">CP ${escapeHtml(order.costText)}</span>
-      ${cooldownText}
-      ${order.enabled ? "" : `<span id="${reasonId}" class="cp-order-reason">${escapeHtml(order.reasonText)}</span>`}
+      <span class="cp-order-top"><span class="cp-order-label">${escapeHtml(order.label)}</span><span class="cp-order-cost" aria-label="Cost ${escapeHtml(order.costText)} command points">${escapeHtml(cost)} CP</span></span>
+      ${sub}
+      ${key}
     </button>`;
 }
 
@@ -973,29 +1199,15 @@ function canDrawPips(budget) {
   return true;
 }
 
-function statusLine(viewModel) {
-  const phase = viewModel.commandStatus.phase;
-  if (phase !== "rejected" && phase !== "acknowledged") return "";
-  return `<p class="cp-status" data-phase="${phase}">${escapeHtml(viewModel.commandStatus.text)}</p>`;
-}
-
-function targetLine(viewModel) {
-  if (viewModel.targetRejection.active) {
-    return `Invalid target. ${viewModel.targetRejection.text}`;
-  }
-  if (viewModel.step === "pending") {
-    return "Target: command pending.";
-  }
-  if (viewModel.step === "target") {
-    return "Target: choose one through the map bridge. This panel does not convert coordinates.";
-  }
-  return "Target: waiting for a selection and an order.";
-}
-
 function formatSeconds(remainingMs) {
   const seconds = remainingMs / 1000;
   const rounded = Math.round(seconds * 10) / 10;
   return `${rounded}s`;
+}
+
+function titleCase(id) {
+  const text = String(id).replaceAll(/[_-]+/g, " ").trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : String(id);
 }
 
 function displayPair(pair, currentKey, maxKey) {
@@ -1022,6 +1234,18 @@ function normalizePair(value, currentKey, maxKey) {
   return { status: "supplied", current, max };
 }
 
+function normalizeTeam(value) {
+  if (!value || typeof value !== "object" || typeof value.id !== "string" || !value.id) return null;
+  const label = typeof value.label === "string" && value.label.trim() ? value.label.trim() : titleCase(value.id);
+  return { id: value.id, label };
+}
+
+/** "Red Runner" → "Runner". The chip sits under a team header already. */
+function shortUnitName(name) {
+  const stripped = name.replace(/^(red|bot|blue)\s+/i, "");
+  return stripped || name;
+}
+
 function normalizeUnits(value) {
   if (value == null) return { status: "unknown", list: [] };
   if (!Array.isArray(value)) return { status: "unknown", list: [] };
@@ -1032,9 +1256,11 @@ function normalizeUnits(value) {
       continue;
     }
     seen.add(unit.id);
+    const name = typeof unit.name === "string" && unit.name.trim() ? unit.name : unit.id;
     list.push({
       id: unit.id,
-      name: typeof unit.name === "string" && unit.name.trim() ? unit.name : unit.id,
+      name,
+      shortName: shortUnitName(name),
       selectable: unit.selectable !== false,
     });
   }
@@ -1103,11 +1329,10 @@ function finiteNumber(value) {
 }
 
 function parseSelection(input) {
-  if (input == null) return { ok: true, selection: { kind: "none", unitIds: [] } };
-  if (input === "all") return { ok: true, selection: { kind: "all", unitIds: [] } };
+  if (input == null || input === "all") return { ok: true, selection: ALL };
   if (typeof input !== "object") return { ok: false, error: "invalid_selection" };
   if (input.all === true || input.unitIds === "all") {
-    return { ok: true, selection: { kind: "all", unitIds: [] } };
+    return { ok: true, selection: ALL };
   }
   if (Array.isArray(input.unitIds)) {
     const unitIds = [];
@@ -1115,7 +1340,7 @@ function parseSelection(input) {
       if (typeof id === "string" && id.length > 0 && !unitIds.includes(id)) unitIds.push(id);
     }
     if (unitIds.length === 0) {
-      return { ok: true, selection: { kind: "none", unitIds: [] } };
+      return { ok: true, selection: ALL };
     }
     return { ok: true, selection: { kind: "units", unitIds } };
   }
@@ -1172,6 +1397,7 @@ function ensureStylesheet(doc, href) {
       return;
     }
     if (doc.getElementById("cp-stylesheet")) return;
+    if (doc.querySelector?.('link[href$="command-panel.css"]')) return;
     const head = doc.head || doc.querySelector?.("head");
     if (!head || typeof head.appendChild !== "function") return;
     const link = doc.createElement("link");

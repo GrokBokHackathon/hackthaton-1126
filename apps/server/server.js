@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { spawnSquad } from "./autopilot.js";
 import { applyCommand, commandView, visionFor } from "./commands.js";
-import { CONFIG, Match } from "./game.js";
+import { CONFIG, Match, TEAMS, resolveJoinTeam } from "./game.js";
 import { createLobbyRouter, shouldBroadcastState } from "./lobby-router.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -185,6 +185,7 @@ wss.on("connection", (ws) => {
       type: "hello",
       service: "flag-raid",
       heartbeatMs,
+      teams: TEAMS,
     })
   );
 
@@ -215,9 +216,15 @@ wss.on("connection", (ws) => {
       }
       if (playerId) return; // Already joined
 
+      const picked = resolveJoinTeam(msg.team);
+      if (!picked.ok) {
+        ws.send(JSON.stringify({ type: "join_rejected", reason: picked.error, teams: TEAMS }));
+        return;
+      }
       const name = String(msg.name || "Player").slice(0, 20);
       const kind = msg.kind === "bot" ? "bot" : "human";
-      playerId = match.addPlayer(playerId || Date.now().toString(36) + Math.random().toString(36).slice(2), name, kind).id;
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      playerId = match.addPlayer(id, name, kind, picked.team ?? undefined).id;
       clients.set(playerId, ws);
 
       sendTo(playerId, {
