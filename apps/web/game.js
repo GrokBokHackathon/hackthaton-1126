@@ -9,7 +9,19 @@ import {
   updateCamera,
   worldToScreen,
 } from "./commander/index.js";
-import { describeFog, drawableFlags, fogLabel, mapPingsFromState, presentationFromUnits, unitsFromState } from "./commander/live-hook.js";
+import { applyCommandPanelShell, mountCommandPanel } from "./command-panel.js";
+import {
+  panelPatchFromCommandMessage,
+  commandTargetFromScreen,
+  commandTargetMeta,
+  describeFog,
+  drawableFlags,
+  fogLabel,
+  forwardCommand,
+  mapPingsFromState,
+  presentationFromUnits,
+  unitsFromState,
+} from "./commander/live-hook.js";
 import { drawFog } from "./fog.js";
 import {
   atlasPivotForFrame,
@@ -44,6 +56,8 @@ export class Game {
     this.frameCounts = {};
     this.linkState = "idle";
     this.artProof = emptyArtProof();
+    this.commandPanel = null;
+    this.sentCommands = [];
 
     this.spritesLoaded = false;
 
@@ -113,9 +127,43 @@ export class Game {
     }
     if (gesture.gesture === "center-on-unit" && gesture.unitId) {
       this.selectedUnitId = gesture.unitId;
+      this.commandPanel?.setSelection({ unitIds: [gesture.unitId] });
     } else if (gesture.gesture === "tap") {
       this.selectedUnitId = gesture.unitId;
+      if (gesture.unitId) {
+        this.commandPanel?.setSelection({ unitIds: [gesture.unitId] });
+      } else {
+        this.offerMapTarget(gesture.x, gesture.y);
+      }
     }
+  }
+
+  offerMapTarget(screenX, screenY) {
+    if (!this.commandPanel) return;
+    const target = commandTargetFromScreen(this.camera, this.bounds, screenX, screenY);
+    if (!target) return;
+    const orderId = this.commandPanel.getViewModel?.().orderId;
+    const fog = this.state && this.state.fog;
+    const meta = commandTargetMeta(fog, orderId, target);
+    this.commandPanel.setTarget(target, meta);
+  }
+
+  sendCommand(payload) {
+    const result = forwardCommand(payload, (message) => this.send(message));
+    if (result.sent) this.sentCommands.push(payload);
+    return result;
+  }
+
+  mountCommandPanel() {
+    if (this.commandPanel) return;
+    const shell = document.getElementById("command-shell");
+    const dock = document.getElementById("command-dock");
+    if (!shell || !dock) return;
+    applyCommandPanelShell(shell, "auto");
+    this.commandPanel = mountCommandPanel(dock, {
+      onCommand: (payload) => this.sendCommand(payload),
+      layout: "auto",
+    });
   }
 
   screenPoint(worldX, worldY) {
@@ -192,6 +240,11 @@ export class Game {
       this.score = msg.score;
       this.phase = msg.phase;
       this.updateScore();
+    } else if (msg.type === "command_view" || msg.type === "command_ack" || msg.type === "command_rejected") {
+      const patch = panelPatchFromCommandMessage(msg);
+      this.lastCommandPatch = patch;
+      if (patch?.commandResult) this.lastCommandResult = patch.commandResult;
+      if (patch) this.commandPanel?.update(patch);
     } else if (msg.type === "scored") {
       this.score = msg.score;
       this.updateScore();
@@ -394,6 +447,7 @@ export class Game {
   }
 
   start() {
+    this.mountCommandPanel();
     this.connect();
     const loop = () => {
       if (this.stopped) return;
@@ -407,6 +461,8 @@ export class Game {
     this.stopped = true;
     this.unmountCamera?.();
     this.unmountCamera = null;
+    this.commandPanel?.destroy?.();
+    this.commandPanel = null;
     if (this.ws) this.ws.close();
   }
 }

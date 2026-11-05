@@ -159,10 +159,17 @@ export function createPointerTracker(options = {}) {
       return gestureResult({
         gesture: "center-on-unit",
         unitId: hit.id,
+        x: snapshot.startX,
+        y: snapshot.startY,
         cameraInput: { centerOn: { x: hit.x, y: hit.y, space: "tile" } },
       });
     }
-    return gestureResult({ gesture: "tap", unitId: hit ? hit.id : null });
+    return gestureResult({
+      gesture: "tap",
+      unitId: hit ? hit.id : null,
+      x: snapshot.startX,
+      y: snapshot.startY,
+    });
   }
 
   return { handle, reset };
