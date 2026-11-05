@@ -1,12 +1,13 @@
+import { CHAR_ATLAS_PIVOT } from "./supplied-art.js";
 import {
   DOUBLE_TAP_DISTANCE_PX,
   DOUBLE_TAP_MS,
   DRAG_THRESHOLD_PX,
+  FRAME_SIZE,
   REMOVED_MOVEMENT_CONTROLS,
-  TAP_RADIUS_TILES,
   TILE_SIZE,
 } from "./constants.js";
-import { screenToWorld, worldToTile } from "./camera.js";
+import { screenToWorld } from "./camera.js";
 
 function gestureResult(partial) {
   return {
@@ -19,27 +20,40 @@ function gestureResult(partial) {
   };
 }
 
+function hitBox(unit, tileSize, pivot, frameW, frameH) {
+  return {
+    left: unit.x * tileSize - pivot.x,
+    top: unit.y * tileSize - pivot.y,
+    right: unit.x * tileSize - pivot.x + frameW,
+    bottom: unit.y * tileSize - pivot.y + frameH,
+  };
+}
+
 /**
- * Hit-test only the units the caller passes. Those must already be fog-filtered.
- * This function does not consult visibility masks and does not add units.
+ * Hit-test only the units the caller passes. A unit that is not in that list
+ * cannot be selected. The box is the rendered sprite: pack pivot and frame
+ * size, not a circle around the feet. Default pivot is atlas char.meta [16, 30]
+ * and the frame is 32×32, so the top of the sprite (30px above the feet) hits.
  */
-export function hitTestUnit(screenX, screenY, units, cameraState, bounds, tapRadiusTiles = TAP_RADIUS_TILES) {
+export function hitTestUnit(screenX, screenY, units, cameraState, bounds, options = {}) {
   if (!cameraState || !bounds || !Array.isArray(units)) return null;
   const world = screenToWorld(cameraState, bounds, screenX, screenY);
   if (!world) return null;
   const tileSize = bounds.tileSize > 0 ? bounds.tileSize : TILE_SIZE;
-  const tile = worldToTile(world.x, world.y, tileSize);
+  const pivot = options.pivot || CHAR_ATLAS_PIVOT;
+  const frameW = options.frameWidth > 0 ? options.frameWidth : FRAME_SIZE;
+  const frameH = options.frameHeight > 0 ? options.frameHeight : FRAME_SIZE;
   let best = null;
-  let bestDist = Infinity;
+  let bestArea = Infinity;
   for (const unit of units) {
     if (!unit || !Number.isFinite(unit.x) || !Number.isFinite(unit.y)) continue;
-    const dist = Math.hypot(unit.x - tile.x, unit.y - tile.y);
-    if (dist > tapRadiusTiles) continue;
-    const closer = dist < bestDist - 1e-9;
-    const tie = Math.abs(dist - bestDist) <= 1e-9 && best && String(unit.id) < String(best.id);
-    if (!best || closer || tie) {
+    const box = hitBox(unit, tileSize, pivot, frameW, frameH);
+    if (world.x < box.left || world.x > box.right || world.y < box.top || world.y > box.bottom) continue;
+    const area = frameW * frameH;
+    const tie = area === bestArea && best && String(unit.id) < String(best.id);
+    if (!best || area < bestArea || tie) {
       best = unit;
-      bestDist = dist;
+      bestArea = area;
     }
   }
   return best;
@@ -54,7 +68,7 @@ export function createPointerTracker(options = {}) {
   const dragThreshold = options.dragThresholdPx ?? DRAG_THRESHOLD_PX;
   const doubleTapMs = options.doubleTapMs ?? DOUBLE_TAP_MS;
   const doubleTapSlop = options.doubleTapDistancePx ?? DOUBLE_TAP_DISTANCE_PX;
-  const tapRadius = options.tapRadiusTiles ?? TAP_RADIUS_TILES;
+  const hitOptions = options.hit || {};
   let active = null;
   let lastTap = null;
 
@@ -64,14 +78,14 @@ export function createPointerTracker(options = {}) {
   }
 
   function handle(event, context = {}) {
-    if (!event || (event.type !== "pointerdown" && event.type !== "pointermove" && event.type !== "pointerup" && event.type !== "pointercancel")) {
+    const type = event && event.type;
+    if (type !== "pointerdown" && type !== "pointermove" && type !== "pointerup" && type !== "pointercancel" && type !== "lostpointercapture") {
       return gestureResult();
     }
     const units = Array.isArray(context.units) ? context.units : [];
     const pointerId = event.pointerId ?? 1;
 
-    if (event.type === "pointerdown") {
-      if (active) return gestureResult();
+    if (type === "pointerdown") {
       active = {
         pointerId,
         startX: event.x,
@@ -86,7 +100,7 @@ export function createPointerTracker(options = {}) {
 
     if (!active || pointerId !== active.pointerId) return gestureResult();
 
-    if (event.type === "pointermove") {
+    if (type === "pointermove") {
       const totalX = event.x - active.startX;
       const totalY = event.y - active.startY;
       if (!active.moved) {
@@ -113,7 +127,7 @@ export function createPointerTracker(options = {}) {
       });
     }
 
-    if (event.type === "pointercancel") {
+    if (type === "pointercancel" || type === "lostpointercapture") {
       active = null;
       return gestureResult({ gesture: "cancel" });
     }
@@ -123,7 +137,7 @@ export function createPointerTracker(options = {}) {
     if (snapshot.moved) return gestureResult({ gesture: "pointer-up" });
 
     const hit = context.cameraState && context.bounds
-      ? hitTestUnit(snapshot.startX, snapshot.startY, units, context.cameraState, context.bounds, tapRadius)
+      ? hitTestUnit(snapshot.startX, snapshot.startY, units, context.cameraState, context.bounds, hitOptions)
       : null;
     const tap = {
       x: snapshot.startX,
@@ -171,9 +185,26 @@ export function mountCameraInput(target, onGesture, options = {}) {
   }
 
   const tracker = options.tracker ?? createPointerTracker(options);
-  const types = ["pointerdown", "pointermove", "pointerup", "pointercancel"];
+  const types = ["pointerdown", "pointermove", "pointerup", "pointercancel", "lostpointercapture"];
+
+  function release(event) {
+    if (typeof target.hasPointerCapture !== "function" || typeof target.releasePointerCapture !== "function") return;
+    if (!target.hasPointerCapture(event.pointerId ?? 1)) return;
+    try {
+      target.releasePointerCapture(event.pointerId ?? 1);
+    } catch {
+      // The pointer may already be gone. The tracker still clears on this event.
+    }
+  }
 
   function listener(event) {
+    if (event.type === "pointerdown" && typeof target.setPointerCapture === "function") {
+      try {
+        target.setPointerCapture(event.pointerId ?? 1);
+      } catch {
+        // Capture can fail if the pointer is already inactive. The tracker still accepts the down.
+      }
+    }
     const rect = target.getBoundingClientRect();
     const sample = {
       type: event.type,
@@ -184,6 +215,7 @@ export function mountCameraInput(target, onGesture, options = {}) {
     };
     const context = typeof options.getContext === "function" ? options.getContext() : {};
     onGesture(tracker.handle(sample, context ?? {}));
+    if (event.type === "pointerup" || event.type === "pointercancel") release(event);
   }
 
   for (const type of types) target.addEventListener(type, listener);

@@ -32,74 +32,51 @@
         font-size: 1.5rem;
         font-weight: bold;
       }
-      #status {
-        font-size: 0.9rem;
-        opacity: 0.8;
+      #status, #fog, #frames {
+        font-size: 0.85rem;
+        opacity: 0.9;
+      }
+      #hud-side {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.2rem;
+        max-width: 60%;
       }
       canvas {
         display: block;
         image-rendering: pixelated;
         image-rendering: crisp-edges;
+        touch-action: none;
       }
       #container {
         position: absolute;
-        top: 60px;
+        top: 72px;
         left: 0;
         right: 0;
         bottom: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         touch-action: none;
-      }
-      #joystick {
-        position: fixed;
-        bottom: 40px;
-        left: 40px;
-        width: 120px;
-        height: 120px;
-        background: rgba(255, 255, 255, 0.1);
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        border-radius: 50%;
-        display: none;
-        touch-action: none;
-        z-index: 20;
-      }
-      #joystick-stick {
-        position: absolute;
-        width: 50px;
-        height: 50px;
-        background: rgba(255, 255, 255, 0.5);
-        border: 2px solid rgba(255, 255, 255, 0.7);
-        border-radius: 50%;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        pointer-events: none;
-      }
-      @media (pointer: coarse) {
-        #joystick {
-          display: block;
-        }
       }
     </style>
   </head>
   <body>
     <div id="ui">
       <div id="score">Red 0 - 0 Bot</div>
-      <div id="status">Connecting...</div>
+      <div id="hud-side">
+        <div id="status">Connecting...</div>
+        <div id="fog">Fog: no snapshot data (view is not masked)</div>
+        <div id="frames">Frames: none</div>
+      </div>
     </div>
     <div id="container">
       <canvas id="canvas"></canvas>
-    </div>
-    <div id="joystick">
-      <div id="joystick-stick"></div>
     </div>
     <script type="module">
       import { Game } from "./game.js";
 
       const origin = window.location.origin;
       const game = new Game("canvas", origin);
+      window.__flagRaid = game;
       game.start();
     </script>
   </body>
