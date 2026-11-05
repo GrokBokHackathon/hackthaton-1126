@@ -10,21 +10,19 @@ Legend: **decided** = team choice; **planned** = agreed direction, not built; **
 
 The core demo is that movement: positions and flag state over WebSockets while the match is live.
 
-**Implemented:** mock connectivity scaffold on `main` (echo-only); none of the match logic yet.
+**Implemented:** Full playable game on `main` — server-authoritative match at 20 Hz, procedural maps, capture/score/tag rules.
 
 ## 2. Who plays
 
-**Decided / product target:** two sides — **humans vs Grok Bot(s)** — silly Grok Bot / emoji theme. Grok Bots are players in the match, not a Compose sidecar.
+**Decided / implemented:** two sides — **Red humans vs Bot team** — silly Grok Bot / emoji theme. Grok Bots are players in the match, not a Compose sidecar.
 
-**n humans vs m Grok Bots.** Both counts can be more than one. Treat flexible counts as compatible with "humans vs bots" unless the first playable slice hard-codes 1v1.
+**n humans vs m Grok Bots.** Both counts can be more than one. Humans join Red team (top-left base), bots join Bot team (bottom-right base).
 
-This host runs the server and the local client. Humans and bots join through the public tunnel URL. A bot is not a Compose service yet.
+This host runs the server and the local client. Humans and bots join through the public tunnel URL. The bot client (`apps/bot`) connects as a WebSocket player.
 
 ## 3. Map and bases
 
-**Planned (product):** bases on **opposite diagonals**; **procedural map** each round with random obstacles; a **path between bases is guaranteed**.
-
-**Implemented:** no map generator yet.
+**Implemented:** bases on **opposite diagonals** (Red top-left, Bot bottom-right); **procedural 64×40 tile map** each round with random obstacles; **path between bases is guaranteed** via flood-fill validation. Minimum obstacle density enforced (40+ with variety: walls, crates, bushes).
 
 ## 4. Tone and time
 
@@ -32,19 +30,25 @@ This host runs the server and the local client. Humans and bots join through the
 
 Ship a playable slice in about three hours. Cut work that does not put people and bots on the same map.
 
+**Implemented:** Playable slice complete — full match, map generation, capture rules.
+
 ## 5. View
 
-**Decided.** **2D top-down.** Isometric and low-poly 3D were considered; top-down is fastest for this time box: a flat canvas, no camera rig. Colored shapes, public assets, emoji, or generated art are all fine.
+**Decided / implemented.** **2D top-down.** Isometric and low-poly 3D were considered; top-down is fastest for this time box: a flat canvas, no camera rig. Colored shapes, public assets, emoji, or generated art are all fine.
+
+Web client uses canvas rendering with responsive zoom (16 tiles on short side), camera follows player.
 
 ## 6. Clients and transport
 
-**Decided.** Web clients. Gameplay traffic is WebSocket at **`/ws`**. The server owns shared state. Clients heartbeat and reconnect (Cloudflare can idle-timeout a socket or restart an edge).
+**Decided / implemented.** Web clients. Gameplay traffic is WebSocket at **`/ws`**. The server owns shared state. Clients heartbeat and reconnect (Cloudflare can idle-timeout a socket or restart an edge).
 
-Each player runs their own client against the published tunnel URL.
+Each player runs their own client against the published tunnel URL. Full JSON protocol documented in [PROTOCOL.md](PROTOCOL.md).
 
 ## 7. Mystery-box powerups
 
-**Planned — next slice after a live match exists.** Not started. Do not document wire fields for boxes until code exists.
+**Planned — next slice after the live match exists.** Not started. Do not document wire fields for boxes until code exists.
+
+Config hooks exist in game.js; powerups not implemented yet.
 
 ## 8. Stretch — behavior trees
 
@@ -80,19 +84,50 @@ Shared docs that teammates need after `git pull` land on **`main`**, not on long
 
 **Decided.** Shared work between Wiktor and Grześ (Greg). Invent features as we go. Commit frequently so the repo stays the handoff.
 
-## 13. First runnable slice — mock behind the tunnel
+## 13. First runnable slice — live match
 
-**Implemented on `main`:** monorepo `apps/server` (mock realtime server) + `apps/web` (client stub); `docker-compose.yml` runs mock, stub, and `cloudflared`.
+**Implemented on `main`:** monorepo `apps/server` (realtime game server) + `apps/web` (canvas client) + `apps/bot` (simple AI); `docker-compose.yml` runs server, web, and `cloudflared`.
 
-The mock answers `GET /health` and echoes `WebSocket /ws`, with heartbeats. That is enough to prove the tunnel. The Capture the Flag match is the next step, not this container.
+The server runs a full Capture the Flag match with procedural maps, server-authoritative movement, capture/score/tag rules, and win conditions. First to 3 captures wins, then new round with fresh map.
 
-See [PROTOCOL.md](../PROTOCOL.md) and the [Verified deployment](../README.md#verified-deployment) section of the README.
+See [PROTOCOL.md](PROTOCOL.md) and [STATUS.md](STATUS.md) for implementation details.
 
-## Open questions
+## 12. WebSocket Protocol
 
-Ask Greg / the gameplay bot when unclear:
+**Implemented.** JSON message protocol over `/ws`. Client sends `join` (name, kind: human|bot), `input` (dx, dy). Server sends `welcome` (playerId, team, map), `state` (players, flags, score), `scored`, `matchEnd`, `newMap` on round reset. Documented in [PROTOCOL.md](PROTOCOL.md).
 
-1. First playable slice: fixed team sizes (e.g. N humans vs 1 bot) or fully dynamic n vs m?
-2. One flag or one flag per side? Capture rule (return to base vs instant score)?
-3. Authoritative tick rate / movement model (client prediction or server snap only)?
-4. Mystery-box effects list for the slice after the live match?
+## 13. Game Rules
+
+**Implemented.** Server-authoritative at ~20 Hz:
+- Exactly 2 teams: Red humans (top-left base) vs Bot team (bottom-right base)
+- Touch enemy flag to pick up, bring to your base to score
+- Tag enemy carrier in your half to return their flag
+- Tagged players respawn at base after 2 seconds
+- First to 3 captures wins
+- New procedurally generated map each round with guaranteed connectivity and meaningful obstacles
+
+## 14. Art and Assets
+
+**In progress.** 32×32 tiles and character frames, rendered at 2× scale (default) with nearest-neighbour filtering. Character pivot at center-bottom (16, 30). Animation timings: run 150ms, flag 250ms, respawn 80ms, hit 60ms per frame.
+
+Asset rendering goes through a single atlas/config module (`apps/web/assets.js`) for easy sprite sheet swapping. Team colors: Red #C42032 (humans), Purple #A27BFF (Bot team). Placeholder emoji/shapes until art pack is fully wired.
+
+## 15. Responsive Design and Mobile
+
+**Implemented.** Zoom calculation: `shortSidePx / (16 * 32)` so shorter screen side always shows 16 tiles.
+- Zoom ≥2: whole-number scale with nearest-neighbour (pixel-perfect)
+- Zoom <2: fractional scale with smoothing
+- Camera follows local player, clamped to map edges
+- On-screen joystick for touch devices
+- HUD in screen space, handles resize and orientation changes
+
+## 16. Fog of War Preparation
+
+**Prepared, not implemented.** Vision radius (7 tiles) and line-of-sight blockers (walls, bushes) are in `CONFIG`. State broadcast structure supports per-client filtering. Implementation is a future PR: server-side visibility computation + per-client state filtering + client fog overlay.
+
+## Answered Questions
+
+1. **Team sizes:** Fully dynamic n humans vs m bots. Humans join Red, bots join Bot team.
+2. **Flags:** One flag per side. Capture rule: bring enemy flag to your base to score.
+3. **Movement model:** Server-authoritative at 20 Hz tick rate, client sends normalized input vectors.
+4. **Mystery-box effects:** Planned for next slice (speed, shield, etc.)

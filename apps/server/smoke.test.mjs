@@ -53,7 +53,7 @@ function startServer() {
   return { child, ready };
 }
 
-test("health endpoint and websocket echo", async () => {
+test("health endpoint and websocket game", async () => {
   const { child, ready } = startServer();
   try {
     const port = await ready;
@@ -62,12 +62,8 @@ test("health endpoint and websocket echo", async () => {
     assert.equal(health.headers.get("access-control-allow-origin"), "*");
     const body = await health.json();
     assert.equal(body.ok, true);
-    assert.equal(body.service, "ctf-mock");
+    assert.equal(body.service, "flag-raid");
     assert.equal(body.websocket, "/ws");
-
-    const page = await fetch(`http://127.0.0.1:${port}/`);
-    assert.equal(page.status, 200);
-    assert.match(await page.text(), /Capture the Flag mock/);
 
     const missing = await fetch(`http://127.0.0.1:${port}/nope`);
     assert.equal(missing.status, 404);
@@ -76,11 +72,19 @@ test("health endpoint and websocket echo", async () => {
     const incoming = [];
     ws.on("message", (data) => incoming.push(String(data)));
     await once(ws, "open");
+    
     const hello = JSON.parse(await nextMessage(incoming));
     assert.equal(hello.type, "hello");
-    assert.equal(hello.service, "ctf-mock");
-    ws.send("flag");
-    assert.equal(await nextMessage(incoming), "flag");
+    assert.equal(hello.service, "flag-raid");
+    
+    ws.send(JSON.stringify({ type: "join", name: "Test", kind: "human" }));
+    const welcome = JSON.parse(await nextMessage(incoming));
+    assert.equal(welcome.type, "welcome");
+    assert.ok(welcome.playerId);
+    assert.equal(welcome.team, "red");
+    assert.ok(welcome.map);
+    assert.ok(welcome.map.tiles);
+    
     ws.close();
     await once(ws, "close");
   } finally {

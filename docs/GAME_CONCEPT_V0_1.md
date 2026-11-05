@@ -10,7 +10,7 @@ Every tuning number in this document is **provisional**. Score target, match clo
 
 ## Relationship to the baseline
 
-The baseline on `main` stays **realtime Capture the Flag: n humans versus m Grok Bots**. [README.md](../README.md) and [docs/DECISIONS.md](DECISIONS.md) describe that game. Humans and Grok Bots are the players. They move themselves on one shared 2D map. Both counts can be more than one. On `main` today that match is still a target: the tree has a mock connectivity scaffold (HTTP health and WebSocket `/ws` echo), and it does not contain map, movement, or flag logic. [PROTOCOL.md](../PROTOCOL.md) is the mock wire contract. This proposal does not edit it.
+The baseline on `main` stays **realtime Capture the Flag: n humans versus m Grok Bots**. [README.md](../README.md) and [docs/DECISIONS.md](DECISIONS.md) describe that game. Humans and Grok Bots are the players. They move themselves on one shared 2D map. Both counts can be more than one. On `main` today that match is implemented: the tree has a full playable game with procedural maps, server-authoritative gameplay, and complete CTF rules. [PROTOCOL.md](PROTOCOL.md) is the game protocol. This proposal does not edit it.
 
 This file is an **alternative proposal** beside that baseline. It is a different way to play, offered for discussion:
 

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>Flag Raid</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #1a1a1a;
+        color: #fff;
+      }
+      #ui {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        z-index: 10;
+      }
+      #score {
+        font-size: 1.5rem;
+        font-weight: bold;
+      }
+      #status {
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+      #container {
+        position: absolute;
+        top: 60px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+      }
+      #joystick {
+        position: fixed;
+        bottom: 40px;
+        left: 40px;
+        width: 120px;
+        height: 120px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        display: none;
+        touch-action: none;
+        z-index: 20;
+      }
+      #joystick-stick {
+        position: absolute;
+        width: 50px;
+        height: 50px;
+        background: rgba(255, 255, 255, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.7);
+        border-radius: 50%;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+      @media (pointer: coarse) {
+        #joystick {
+          display: block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div id="score">Red 0 - 0 Bot</div>
+      <div id="status">Connecting...</div>
+    </div>
+    <div id="container">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div id="joystick">
+      <div id="joystick-stick"></div>
+    </div>
+    <script type="module">
+      import { Game } from "./game.js";
+
+      const origin = window.location.origin;
+      const game = new Game("canvas", origin);
+      game.start();
+    </script>
+  </body>
+</html>

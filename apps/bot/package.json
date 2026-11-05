@@ -1,0 +1,11 @@
+{
+  "name": "flag-raid-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
