@@ -39,6 +39,7 @@ Hosting stays on Wiktor's laptop (Podman / Docker Compose + Cloudflare Tunnel). 
 | [README.md](README.md) | Status, vision, run pointers |
 | [PROTOCOL.md](PROTOCOL.md) | HTTP + WebSocket message shapes (mock today) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
+| [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative discussion proposal only (two patrons, six AI heroes). Not the baseline, not implemented. |
 
 ## Verified deployment
 
