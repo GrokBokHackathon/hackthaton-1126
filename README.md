@@ -147,6 +147,36 @@ npm test --prefix apps/server
 # Tests: map connectivity, obstacle density, flag pickup, capture, tag-return, win/reset
 ```
 
+## Deploy to Vercel (marketing landing + static client)
+
+The marketing landing page and game client can be deployed to Vercel as a static site. **The realtime game server stays on Wiktor's laptop** via Cloudflare Tunnel — Vercel only serves the static HTML/CSS/JS.
+
+### Quick Setup
+
+1. **Import the repo** on Vercel dashboard
+2. **Configure the project**:
+   - **Framework Preset**: Other
+   - **Root Directory**: Leave as `.` (root) — `vercel.json` points to `apps/web`
+   - **Build Command**: Leave empty (no build needed)
+   - **Output Directory**: Leave empty (configured in `vercel.json`)
+   - **Install Command**: Leave empty (no dependencies)
+3. **Deploy** — Vercel will serve:
+   - Landing page: `https://your-project.vercel.app/`
+   - Game client: `https://your-project.vercel.app/game.html`
+
+### How It Works
+
+- `vercel.json` configures static file serving from `apps/web`
+- Landing page is pure HTML/CSS (no build step)
+- Game client connects to `https://hakaton-11-26.wffe.io` for WebSocket gameplay
+- Local development (`localhost`) still connects to local server at `http://127.0.0.1:8080`
+
+### Updating the Game Server URL
+
+If the Cloudflare Tunnel URL changes, update it in two places:
+- `apps/web/game.html` — game client WebSocket connection
+- `apps/web/index.html` — "Play Now" button link
+
 ## Next steps
 
 1. **Fog of war** (server-computed, per-client state filtering) — planned, config ready

@@ -98,8 +98,12 @@
     <script type="module">
       import { Game } from "./game.js";
 
-      const origin = window.location.origin;
-      const game = new Game("canvas", origin);
+      // Game server origin: use tunnel URL for production, or local origin for development
+      const gameServerOrigin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? window.location.origin
+        : 'https://hakaton-11-26.wffe.io';
+      
+      const game = new Game("canvas", gameServerOrigin);
       game.start();
     </script>
   </body>
