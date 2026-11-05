@@ -23,6 +23,7 @@ import {
   presentationFromUnits,
   unitsFromState,
 } from "./commander/live-hook.js";
+import { applyDebugOverlay, debugOverlayEnabled } from "./commander/debug-overlay.js";
 import { drawFog } from "./fog.js";
 import { roundHudFromState } from "./commander/round-hud.js";
 import {
@@ -481,6 +482,8 @@ export class Game {
   }
 
   start() {
+    const search = typeof location !== "undefined" ? location.search : "";
+    applyDebugOverlay(typeof document !== "undefined" ? document.body : null, debugOverlayEnabled(search));
     this.mountCommandPanel();
     this.connect();
     const loop = () => {
