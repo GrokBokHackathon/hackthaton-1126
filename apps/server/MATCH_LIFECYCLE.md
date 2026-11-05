@@ -1,6 +1,10 @@
 # Match lifecycle (isolated)
 
-Pure state machine in `match-lifecycle.js`. It is not wired into `game.js` or `server.js`. The live server still uses its existing 3-capture / 5-second reset path until the core adapter switches over. Do not run a second results timer beside this module.
+Pure state machine in `match-lifecycle.js`. `Match` in `game.js` is the only adapter. It keeps one lifecycle, passes `match.nowMs` into `tick` / `capture` / `reset`, and does not also run the old 5-second `matchEndDelayMs` timer.
+
+Opening `roundStarted` is not applied again: the constructor already built the first map, flags, CP, and fog. `resetRequired` runs `regenerateMap`, `resetUnits`, `resetFlags`, `resetOrders`, `resetCp`, `resetBeerRush`, and `resetFog` once, then `reset(now)`. The `roundStarted` event from that `reset` has `runHooks: false` and is not applied again.
+
+`server.js` is not edited here. Its state broadcast still runs only for `playing` and `waiting`. To show the results clock it also needs `sudden_death` and `results`. `Match.tick` already advances those phases. `newMap` is still an event on the tick return value.
 
 Time is a finite monotonic millisecond value supplied by the caller. The module does not read a clock, start timers, or build a map.
 

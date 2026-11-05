@@ -148,25 +148,24 @@ test("match - win and regenerate map", () => {
   }
   
   assert.equal(match.score.red, 3);
-  assert.equal(match.phase, "ended");
+  assert.equal(match.phase, "results");
+  assert.equal(match.winner, "red");
+  assert.equal(match.players.has("p1"), true);
   
   assert.ok(matchEnd);
   assert.equal(matchEnd.winner, "red");
-  
-  // Wait for reset
-  match.endTime = Date.now() - 1000;
-  const resetEvents = match.tick(0.05);
-  
-  // Should get newMap event
+  assert.equal(matchEnd.winReason, "captures");
+
+  match.nowMs = match.resultsEndsAtMs;
+  const resetEvents = match.tick(0);
   const newMapEvent = resetEvents.find((e) => e.type === "newMap");
   assert.ok(newMapEvent);
   assert.ok(newMapEvent.map);
-  
-  // New seed
   assert.notEqual(match.map.seed, firstSeed);
   assert.equal(match.score.red, 0);
   assert.equal(match.score.bot, 0);
-  assert.equal(match.phase, "waiting");
+  assert.equal(match.phase, "playing");
+  assert.equal(match.players.has("p1"), true);
 });
 
 test("match - movement and collision", () => {

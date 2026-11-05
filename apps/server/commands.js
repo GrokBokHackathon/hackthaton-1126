@@ -61,7 +61,7 @@ function book(match) {
 
 export function tickEconomy(match, dtSeconds) {
   const economy = book(match);
-  if (match.phase !== "playing") return;
+  if (match.phase !== "playing" && match.phase !== "sudden_death") return;
   match.commandMs += dtSeconds * 1000;
   for (const team of ["red", "bot"]) {
     const side = economy[team];
