@@ -65,3 +65,20 @@ Shared work between Wiktor and Grześ. Invent features as we go. Commit frequent
 Monorepo: `apps/server` (mock realtime server) and `apps/web` (client stub). `docker-compose.yml` runs the mock, the stub, and `cloudflared`.
 
 The mock answers `GET /health` and echoes `WebSocket /ws`, with heartbeats. That is enough to prove the tunnel. The Capture the Flag match is the next step, not this container.
+
+## 12. WebSocket Protocol
+
+JSON message protocol over `/ws`. Client sends `join` (name, kind: human|bot), `input` (dx, dy). Server sends `welcome` (playerId, team, map), `state` (players, flags, score), `scored`, `matchEnd`, `newMap` on round reset. See `docs/PROTOCOL.md` for full spec.
+
+## 13. Game Rules
+
+- Exactly 2 teams: Red humans (top-left base) vs Bot team (bottom-right base)
+- Touch enemy flag to pick up, bring to your base to score
+- Tag enemy carrier in your half to return their flag
+- First to 3 captures wins
+- New procedurally generated map each round with guaranteed connectivity and meaningful obstacles
+- Server-authoritative at ~20 Hz tick rate
+
+## 14. Art and Assets
+
+32x32 tiles and character frames, rendered at 2x scale with nearest-neighbour filtering. Character pivot at center-bottom (16, 30). Animation: run 150ms, flag 250ms, respawn 80ms, hit 60ms per frame. Asset rendering goes through a single atlas/config module (`apps/web/assets.js`) for easy sprite sheet swapping. Team colors: Red #C42032 (humans), Purple #A27BFF (Bot team).

@@ -32,25 +32,29 @@ See [docs/DECISIONS.md](docs/DECISIONS.md) before changing the match, the map, o
 ## Layout
 
 ```
-apps/server          Mock realtime server: GET /health, GET /, WebSocket /ws echo
-apps/web             Static client stub (local only)
+apps/server          Realtime game server: GET /health, WebSocket /ws game protocol
+apps/web             Canvas web client with WASD/arrow movement
+apps/bot             Bot client with simple AI
 docker-compose.yml   server + web + cloudflared
 .env.example         Empty CLOUDFLARE_TUNNEL_TOKEN=  (copy to .env, do not commit .env)
 docs/DECISIONS.md    Product and architecture choices
+docs/PROTOCOL.md     WebSocket JSON protocol documentation
 ```
 
-The mock only proves HTTP and WebSocket through the tunnel. It does not run a match yet.
+The game is playable: procedurally generated maps, realtime movement, capture the flag rules, and bot AI.
 
 ## Local run
 
-This host runs the stack. Humans and Grok Bots join the same public tunnel URL as players. Bots are not a Compose service yet.
+This host runs the stack. Humans and bots join through the public tunnel URL or local ports as players.
+
+### With Docker Compose
 
 ```bash
 cp .env.example .env
 # Put the tunnel token in .env as CLOUDFLARE_TUNNEL_TOKEN. Never commit .env.
 
-docker compose up --build
-# Podman: podman compose up --build
+docker compose up --build server web
+# Podman: podman compose up --build server web
 ```
 
 Compose passes `CLOUDFLARE_TUNNEL_TOKEN` into cloudflared as `TUNNEL_TOKEN`. It is not placed on the process command line. Do not commit `.env`, and do not paste `docker compose config` after the token is set — that printout expands it.
@@ -64,24 +68,42 @@ In Cloudflare (Networking → Tunnels → your tunnel → Public hostname):
 
 Published ports are loopback only:
 
-- Mock server: <http://127.0.0.1:8080/health> and <http://127.0.0.1:8080/> (same-origin echo page)
-- Web stub: <http://127.0.0.1:3000/>
+- Game server: <http://127.0.0.1:8080/health>
+- Web client: <http://127.0.0.1:3000/>
 
-Public check, after the tunnel shows healthy:
+Open two or more browser tabs at <http://127.0.0.1:3000/> to play as multiple humans. Use WASD or arrow keys to move.
 
-- `curl https://<your-hostname>/health`
-- Open `https://<your-hostname>/` and send a WebSocket message. The server echoes it.
+### Run a bot
 
-The mock sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Both pages reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
+```bash
+npm ci --prefix apps/bot
+node apps/bot/bot.js ws://127.0.0.1:8080/ws BotName
+# Or with tunnel: node apps/bot/bot.js wss://your-hostname/ws BotName
+```
 
-Without a token, start only the local apps: `docker compose up --build server web`. `cloudflared` exits until `CLOUDFLARE_TUNNEL_TOKEN` is set.
+### Without containers
 
-Server smoke test, no containers:
+```bash
+# Terminal 1: Server
+npm ci --prefix apps/server
+npm start --prefix apps/server
+
+# Terminal 2: Serve web client (or just open game.html in browser)
+cd apps/web && python3 -m http.server 3000
+
+# Terminal 3: Bot
+npm ci --prefix apps/bot
+node apps/bot/bot.js ws://127.0.0.1:8080/ws
+```
+
+### Tests
 
 ```bash
 npm ci --prefix apps/server
 npm test --prefix apps/server
 ```
+
+The server sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Clients reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
 
 ## Contributing
 
@@ -89,10 +111,27 @@ npm test --prefix apps/server
 - Shared work. Invent features as we go and commit often so the other person can continue.
 - Never commit secrets, tokens, API keys, tunnel tokens, credentials, or env values.
 
-## Next steps
+## Gameplay
 
-1. Replace the echo socket with a live match: positions for n humans and m bots, plus flag state, on one 2D map.
-2. Draw that map top-down in the web client and move with the keyboard.
-3. End a match when a side takes the flag. Keep the rules silly and short.
-4. Let a Grok Bot connect through the public tunnel URL as a player.
-5. Stretch: between matches, or a light mid-match tweak, rewrite a bot's JSON behavior tree. Not required for the first playable game.
+- **2 teams**: Red (humans, top-left) vs Bot (bots, bottom-right)
+- **Rules**: Touch enemy flag to pick up, bring to your base to score. Tag enemy carriers in your half to return their flag.
+- **Win condition**: First to 3 captures
+- **Map**: 64x40 tiles, procedurally generated each round with guaranteed connectivity
+- **Controls**: WASD/arrows on desktop, on-screen joystick on mobile
+
+## Responsive Design
+
+The client works on phone and desktop with responsive zoom:
+- Shorter screen side always shows 16 tiles
+- Zoom ≥ 2: whole-number scale with nearest-neighbour (pixel-perfect)
+- Zoom < 2: fractional scale with smoothing
+- Camera follows your player, clamped to map edges
+- HUD rendered in screen space
+
+## Next Steps
+
+1. Wire in the placeholder art pack (atlas.json, sprite sheets)
+2. Add fog of war (server-computed, per-client state filtering)
+3. Powerups (speed, shield, etc.)
+4. LLM behavior tree editing for bots
+5. Voice/text commands for tactical changes

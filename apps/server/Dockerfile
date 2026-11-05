@@ -5,8 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js ./
-COPY public ./public
+COPY server.js game.js ./
 
 ENV PORT=8080
 EXPOSE 8080
