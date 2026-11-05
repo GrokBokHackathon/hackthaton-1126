@@ -69,6 +69,7 @@ Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. Wiktor owns h
 - Local game client: <http://127.0.0.1:3000/game.html>
 - Public URL: <https://hakaton-11-26.wffe.io>
 - Public game: <https://hakaton-11-26.wffe.io/game.html>
+- Public marketing landing page (Vercel): <https://hackthaton-1126-web-alimeks-projects.vercel.app/>
 - `GET /health` → `200` with `{"ok":true,"service":"flag-raid","role":"realtime-game-server","websocket":"/ws","players":N,"phase":"playing|waiting|ended"}`
 - `wss://…/ws` from an external machine: full game protocol (see [docs/PROTOCOL.md](docs/PROTOCOL.md))
 - Cloudflare public hostname → `http://server:8080` on the Compose `game` network
