@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Validate that atlas.json references valid images and coordinates
-// Usage: node validate_atlas.js [path-to-assets-dir]
+// Validate that atlas_v2.json references valid images and coordinates
+// Usage: node validate_atlas.js [path-to-assets-dir] [atlas-filename]
+// Default: validates apps/web/assets/atlas_v2.json
 
 import fs from "fs";
 import path from "path";
@@ -34,12 +35,12 @@ function readPNGDimensions(filepath) {
   }
 }
 
-function validateAtlas(assetsDir) {
-  console.log(`Validating atlas in: ${assetsDir}\n`);
+function validateAtlas(assetsDir, atlasFilename = "atlas_v2.json") {
+  console.log(`Validating ${atlasFilename} in: ${assetsDir}\n`);
 
-  const atlasPath = path.join(assetsDir, "atlas.json");
+  const atlasPath = path.join(assetsDir, atlasFilename);
   if (!fs.existsSync(atlasPath)) {
-    console.error("❌ atlas.json not found");
+    console.error(`❌ ${atlasFilename} not found`);
     return false;
   }
 
@@ -47,7 +48,7 @@ function validateAtlas(assetsDir) {
   try {
     atlas = JSON.parse(fs.readFileSync(atlasPath, "utf-8"));
   } catch (err) {
-    console.error(`❌ Failed to parse atlas.json: ${err.message}`);
+    console.error(`❌ Failed to parse ${atlasFilename}: ${err.message}`);
     return false;
   }
 
@@ -153,11 +154,12 @@ function validateAtlas(assetsDir) {
 
 // Main
 const assetsDir = process.argv[2] || path.join(__dirname, "../../apps/web/assets");
+const atlasFilename = process.argv[3] || "atlas_v2.json";
 
 if (!fs.existsSync(assetsDir)) {
   console.error(`Error: Assets directory not found: ${assetsDir}`);
   process.exit(1);
 }
 
-const success = validateAtlas(assetsDir);
+const success = validateAtlas(assetsDir, atlasFilename);
 process.exit(success ? 0 : 1);

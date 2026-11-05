@@ -1,9 +1,11 @@
 // Sprite loader for the Flag Raid art pack
-// Loads the grouped atlas.json format and provides sprite access
+// Loads the grouped atlas_v2.json format and provides sprite access
+// Note: The original atlas.json uses a flat format read by atlas.js
 
 export class SpriteLoader {
-  constructor(basePath = "./assets/") {
+  constructor(basePath = "./assets/", atlasFile = "atlas_v2.json") {
     this.basePath = basePath;
+    this.atlasFile = atlasFile;
     this.atlas = null;
     this.images = new Map();
     this.loaded = false;
@@ -19,9 +21,9 @@ export class SpriteLoader {
 
     this.loadPromise = (async () => {
       try {
-        const response = await fetch(this.basePath + "atlas.json");
+        const response = await fetch(this.basePath + this.atlasFile);
         if (!response.ok) {
-          console.warn("Failed to load atlas.json");
+          console.warn(`Failed to load ${this.atlasFile}`);
           return false;
         }
 
@@ -219,16 +221,17 @@ export class SpriteLoader {
   }
 }
 
-// Global instance for convenience
+// Global instance for convenience (uses atlas_v2.json)
 export const spriteLoader = new SpriteLoader();
 
 /**
- * Initialize sprite loading with custom base path
+ * Initialize sprite loading with custom configuration
  * @param {string} basePath - Base path for assets
+ * @param {string} atlasFile - Atlas filename (default: atlas_v2.json)
  * @returns {Promise<boolean>}
  */
-export async function initSprites(basePath = "./assets/") {
-  const loader = new SpriteLoader(basePath);
+export async function initSprites(basePath = "./assets/", atlasFile = "atlas_v2.json") {
+  const loader = new SpriteLoader(basePath, atlasFile);
   await loader.load();
   return loader.loaded;
 }

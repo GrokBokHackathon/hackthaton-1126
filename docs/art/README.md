@@ -10,7 +10,7 @@ Served by the web client:
 
 ```
 apps/web/assets/
-├── atlas.json                              # Sprite atlas mapping keys to sheets and rects
+├── atlas_v2.json                           # Sprite atlas mapping keys to sheets and rects (grouped format)
 ├── char_red_sheet_placeholder.png          # Red team character sprites (128×192)
 ├── char_bot_sheet_placeholder.png          # Bot team character sprites (128×192)
 ├── char_mask_sheet_placeholder.png         # Neutral character mask (128×192)
@@ -257,7 +257,7 @@ The current game configuration:
 
 ## Atlas Format
 
-The `atlas.json` uses a **grouped format** where sprites are organized by category. Each group has:
+The `atlas_v2.json` uses a **grouped format** where sprites are organized by category. Each group has:
 - `meta.image` — The sprite sheet filename (supports `{team}` template for characters)
 - `meta.pivot` — Optional pivot point `[x, y]` for the group
 - `frames` — Object mapping frame names to `{x, y, w, h}` rectangles
@@ -284,7 +284,7 @@ For characters, the `{team}` placeholder in the image path is replaced with `red
 
 ### With the Sprite Loader Module
 
-The repository includes `apps/web/spriteLoader.js`, a minimal ES6 module for loading and rendering sprites:
+The repository includes `apps/web/spriteLoader.js`, a minimal ES6 module for loading and rendering sprites from `atlas_v2.json`:
 
 ```javascript
 import { spriteLoader } from "./spriteLoader.js";
@@ -315,7 +315,7 @@ const tileKeys = spriteLoader.getGroupKeys("tiles");
 3. Replace shape fallbacks with `spriteLoader.drawTile()` or `spriteLoader.drawAt()`
 4. Pass `team` parameter ("red" or "bot") for character sprites
 
-The existing `atlas.js` and `assets.js` use a different atlas format and will continue to work as a fallback.
+**Note:** The original `atlas.json` uses a flat format with `source` keys (read by the existing `atlas.js` renderer). The new `atlas_v2.json` uses a grouped format. Both coexist — the existing renderer continues to use `atlas.json` unchanged.
 
 ## Regenerating Assets
 
@@ -350,8 +350,10 @@ Run `validate_atlas.js` to check atlas integrity:
 
 ```bash
 node tools/art/validate_atlas.js
-# Or specify a custom path:
-# node tools/art/validate_atlas.js path/to/assets
+# Validates atlas_v2.json by default
+
+# Or specify custom path and filename:
+# node tools/art/validate_atlas.js path/to/assets atlas_v2.json
 ```
 
 This validates:
