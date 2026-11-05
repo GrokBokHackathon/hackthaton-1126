@@ -28,14 +28,27 @@
         justify-content: space-between;
         align-items: center;
         z-index: 10;
+        /* Score and round stay visible. The bar never takes clicks from the canvas or the order panel. */
+        pointer-events: none;
       }
       #score {
         font-size: 1.5rem;
         font-weight: bold;
       }
+      /* Debug readout: connection text, fog label, and frame counters.
+         Hidden unless body[data-debug-overlay="on"] (?debug=1).
+         pointer-events stays none while visible so the text cannot cover Rally or the map. */
       #status, #fog, #frames {
+        display: none;
         font-size: 0.85rem;
         opacity: 0.9;
+        pointer-events: none;
+      }
+      body[data-debug-overlay="on"] #status,
+      body[data-debug-overlay="on"] #fog,
+      body[data-debug-overlay="on"] #frames {
+        display: block;
+        pointer-events: none;
       }
       #hud-side {
         display: flex;
