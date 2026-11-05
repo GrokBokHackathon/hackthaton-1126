@@ -23,6 +23,7 @@ import {
   unitsFromState,
 } from "./commander/live-hook.js";
 import { drawFog } from "./fog.js";
+import { roundHudFromState } from "./commander/round-hud.js";
 import {
   atlasPivotForFrame,
   characterDestRect,
@@ -240,6 +241,7 @@ export class Game {
       this.score = msg.score;
       this.phase = msg.phase;
       this.updateScore();
+      this.publishRound(roundHudFromState(msg));
     } else if (msg.type === "command_view" || msg.type === "command_ack" || msg.type === "command_rejected") {
       const patch = panelPatchFromCommandMessage(msg);
       this.lastCommandPatch = patch;
@@ -270,6 +272,13 @@ export class Game {
   updateStatus(text) {
     const statusEl = document.getElementById("status");
     if (statusEl) statusEl.textContent = text;
+  }
+
+  publishRound(hud) {
+    const el = document.getElementById("round");
+    if (!el || !hud) return;
+    el.textContent = hud.text;
+    el.hidden = !hud.visible;
   }
 
   publishFog(description) {
