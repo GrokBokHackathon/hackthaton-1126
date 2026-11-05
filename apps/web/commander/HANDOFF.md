@@ -1,12 +1,12 @@
 # Commander camera and unit readability handoff
 
-Status: **MODULE-READY**. **Not integrated.** `apps/web/game.js` is unchanged. CTF Developer owns that file and applies the hook below.
+Status: MODULE-READY camera math stays in this folder. Live `game.js` draws supplied art, the free camera, and `drawFog` from `apps/web/fog.js` in world pixels. Orders panel: **Not integrated**. `apps/web/command-panel.mjs` is not in this tree, so this client does not import it and does not send `command`. That is not a commander-ready match.
 
-Contract version: `2026-11-05.1` (`HANDOFF_VERSION`).
+Contract version: `2026-11-05.2` (`HANDOFF_VERSION`).
 
 Issues: [#8](https://github.com/GrokBokHackathon/hackthaton-1126/issues/8) camera, [#10](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10) unit readability. This document does not close them.
 
-Main checked before handoff: `687c16e`. Atlas rects and the world-transform math match that tree. The only `game.js` change since the art merge removes a duplicate `const time` in `render` and does not change the camera. Tile size 32, pivot Y 30, teams `red` and `bot`, player `x`/`y` in tiles, and `welcome.map.width` / `welcome.map.height` are the live contracts this module reads. It does not import `game.js`, `assets.js`, or `spriteLoader.js`.
+Main at publication: `46d2848`, which contains bootfix `687c16e`, camera modules from #21, fog from #22, and the isolated lobby from #27. This client does not import the lobby. Tile size 32 and teams `red` / `bot` still match `assets.js` and the protocol. Character pivot `[16, 30]` used for drawing is the atlas field, not a claim that `assets.js` `pivotY` is the art-pack collision box. The pure modules still do not import `game.js`.
 
 ## Public exports
 
@@ -38,6 +38,25 @@ Import from `apps/web/commander/index.js`.
 | `mountCameraInput(target, onGesture, options?)` | Pointer listeners on `target` only. Returns `unmount` |
 | `renderUnitOverlay(input)` | `{ markers, warnings, drawOrder }` |
 | `paintUnitOverlay(ctx, markers, drawSprite)` | Draws markers. `drawSprite(ctx, frame, x, y, w, h) === true` skips fallback |
+| `describeFog(state)` | `missing-data`, `invalid`, or `data-present`. `secure` is always false |
+| `fogLabel(description)` | Screen-space HUD sentence. It does not claim concealment |
+| `unitsFromState(state)` | The server `players` array, or missing/invalid. No client filter |
+| `presentationFromUnits(units)` | Copies `order` / `replanning` / `path` only when those own properties exist |
+| `mapPingsFromState(state)` | `state.mapPings` only when that own property exists. Otherwise `[]` |
+| `drawableFlags(flags)` | Skips null, missing, non-finite, and `{hidden:true}` flags |
+| `characterFrameName(player, nowMs)` | Pack names such as `char_down_idle` |
+| `terrainFrameName(tile, x, y, tiles)` | Protocol 0/1/2/3 to `grass_*`, `wall_XX`, `crate_beer`, `bush`. Never `tree` |
+| `wallFrameName(tiles, x, y)` | `wall_00` … `wall_15` |
+| `grassFrame(x, y)` | `grass_a` or `grass_b` |
+| `atlasPivotForFrame(atlas, frameName)` | Group `meta.pivot` or null. Does not invent a center |
+| `characterDestRect(...)` | Top-left from that pivot. Null when pivot is absent |
+| `terrainDestRect(...)` | Cell top-left, frame `w`/`h` unchanged |
+| `drawLoadedFrame(ctx, loader, frameName, dest, team)` | `drawImage` at the atlas size |
+| `CHAR_ATLAS_PIVOT` | `{x:16, y:30}` from `atlas.json` `char.meta.pivot` |
+| `FOOT_BOUNDS` | `null`. The pack has no foot-bounds field |
+| `TREE_ART` | Frame rect only. `protocolTileId` is null |
+| `CRATE_FRAME` | `crate_beer` |
+| `BUSH_FRAME` | `bush` |
 
 Importing the package does not fetch, open a socket, or register listeners.
 
@@ -163,7 +182,7 @@ Rects are mirrored in `frames.js` and tested against `apps/web/assets/atlas.json
 
 ## Adapter core still has to apply
 
-`game.js` today follows the local player and still installs WASD and the joystick. This branch does not delete them.
+The snippet below is the hook the live `game.js` now runs. WASD and the joystick are gone from that file.
 
 ```js
 import {
@@ -226,26 +245,41 @@ screenSpaceTransform(); // HUD stays in CSS pixels / existing #ui DOM
 this.unmountCamera?.();
 ```
 
-Also remove, when integrating: `setupInput`, `setupTouch`, `getInput`, `sendInput`, the key set, joystick deltas, and the `#joystick` nodes in `game.html`. Those files are not edited here.
+`game.js` now mounts that camera, drops WASD and the joystick, and does not send `{type:"input"}`. `game.html` has no `#joystick`. The HUD (`#score`, `#status`, `#fog`, `#frames`) stays in screen space.
 
-`filteredUnits` must be the fog-filtered roster core already uses to draw. Until fog lands, that is the `state.players` array the client actually holds, with no extra hidden rows added by this module.
+`unitsFromState` returns `state.players` unchanged. This client does not remove units with a fog mask. Until the server filters that array, the list is whoever the snapshot contains.
 
-`unitPresentation` and `mapPings` are not on the main snapshot. Autopilot (issue 5) has not published `order`, `path`, or `replanning`. Leave presentation empty and no badges, rings, or thinking emotes appear. Do not invent those fields on `state`.
+`presentationFromUnits` copies `order`, `path`, and `replanning` only when a player object already has that property. Main snapshots do not. Badges, intent lines, and thinking emotes therefore do not appear yet. `mapPings` is read only when present.
+
+## Supplied art inspection (not a collision contract)
+
+Checked `apps/web/assets/atlas.json`, `apps/server/game.js` (`FLOOR`/`WALL`/`CRATE`/`BUSH`), `docs/PROTOCOL.md`, and `docs/art/sprite-spec.md`.
+
+| Fact | Where it is written | What this client does |
+| --- | --- | --- |
+| Character pivot `[16, 30]` | `atlas.json` `char.meta.pivot` only | `characterDestRect` subtracts that pivot. Sprite `w`/`h` stay 32. This is a draw anchor, not a hitbox |
+| Foot bounds | Absent. Atlas JSON has no `foot`, `bounds`, or `hitbox` field | `FOOT_BOUNDS` is null. Nothing here is a collision radius |
+| Tile pivot | Absent on `tiles`, `tiles2`, and `fx` | Terrain is drawn at the cell top-left at the frame size. `spriteLoader.getSprite` would otherwise invent `[w/2, h/2]`; this path does not use that value |
+| Protocol tiles | `0` floor, `1` wall, `2` crate, `3` bush | `grass_a`/`grass_b`, `wall_00`–`wall_15`, `crate_beer`, `bush` |
+| `assets.js` names `tile_grass`, `tile_crate`, `wall_0` | Old loader keys. They are not in the grouped atlas | Not used when `spriteLoader` has the pack frame. Colored shapes remain only if the frame is missing |
+| `tree` | `tiles2` frame `{x:0,y:96,w:64,h:64}`. No protocol id. `atlasPivot` null | Not drawn. `artProof.treeDrawn` stays 0 |
+| `path`, water, rocks, and the rest of `tiles2` | Frames exist. The live map generator never emits those ids | Not drawn |
+| Flag pivot `(9, 30)` | sprite-spec table only, not `atlas.json` | Flags stay on the old centered point. That is placement, not a new pivot field |
+| `atlas.js` `getFrame` | Requires top-level `atlas.frames` | The live path uses `spriteLoader`, which reads grouped sheets |
+
+`docs/art/sprite-spec.md` also says a tree blocks movement and sight, and gives tile placement notes. That page is not the server contract. Server collision and any tree slowdown stay with core.
 
 ## Acceptance
 
-| Criterion | Module | Integrated in `game.js` |
-| --- | --- | --- |
-| Free pan/drag camera | Yes, `updateCamera` + pointer tracker | No |
-| Double-tap a unit centers it | Yes, same filtered list only | No |
-| Short side targets 16 tiles; floor at zoom >= 2 | Yes, matches current formula | Already the old follow-camera; not the free camera |
-| UI does not zoom | Yes, `screenSpaceTransform` | DOM HUD already unscaled; canvas hook not applied |
-| WASD and joystick removed | API returns no movement vector | No, `game.js` still sends `input` |
-| Friendly `badge_<order>` only | Yes, if presentation is supplied | No |
-| Own-team ring (200ms) and dotted path | Yes | No |
-| Thinking emote (200ms) while replanning | Yes | No |
-| Ping 100ms and pin | Yes, for `mapPings` the caller passes | No |
-| Badges at least 16 screen px | Yes | No |
+| Criterion | Live `game.js` |
+| --- | --- |
+| Free pan/drag and double-tap center | Wired |
+| Short-side scale and unscaled HUD | Wired |
+| WASD and joystick removed | Wired. No movement `input` message |
+| Supplied character and protocol terrain sprites | Wired through `spriteLoader` when the frame loads |
+| Badges, ring, path, thinking, ping | Code path wired; snapshot fields are absent, so those markers are not invented |
+| Fog overlay | `drawFog(ctx, state.fog, tileSize)` after the terrain and before flags and units, same camera transform. `secure` stays false: paint is not the filter |
+| Orders to bots | Not integrated. No command-panel module in this tree |
 
 Run: `node --test apps/web/commander/*.test.js`
 

@@ -1,6 +1,24 @@
 // Sprite loader for the Flag Raid art pack
 // Loads the grouped atlas.json format and provides sprite access
 
+const TEAM_SHEETS = ["red", "bot", "mask"];
+
+/** Expand char_{team} sheet names. Other images are used as written. */
+export function atlasImagePaths(atlas) {
+  const paths = [];
+  if (!atlas) return paths;
+  for (const group of Object.values(atlas)) {
+    const image = group && group.meta && group.meta.image;
+    if (!image) continue;
+    if (image.includes("{team}")) {
+      for (const team of TEAM_SHEETS) paths.push(image.replaceAll("{team}", team));
+    } else {
+      paths.push(image);
+    }
+  }
+  return paths;
+}
+
 export class SpriteLoader {
   constructor(basePath = "./assets/") {
     this.basePath = basePath;
@@ -27,13 +45,7 @@ export class SpriteLoader {
 
         this.atlas = await response.json();
 
-        // Collect unique image paths from all groups
-        const imagePaths = new Set();
-        for (const group of Object.values(this.atlas)) {
-          if (group.meta && group.meta.image) {
-            imagePaths.add(group.meta.image);
-          }
-        }
+        const imagePaths = new Set(atlasImagePaths(this.atlas));
 
         // Load all images
         const imagePromises = Array.from(imagePaths).map((path) =>

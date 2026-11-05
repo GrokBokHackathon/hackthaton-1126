@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Command panel preview (not wired)</title>
+    <link rel="stylesheet" href="../command-panel.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #10141c;
+        color: #f4f1ea;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      .preview-banner {
+        position: absolute;
+        z-index: 4;
+        top: 8px;
+        left: 8px;
+        max-width: min(36rem, calc(100% - 16px));
+        margin: 0;
+        padding: 6px 8px;
+        background: rgba(20, 16, 8, 0.92);
+        color: #ffd38a;
+        border: 1px solid #ffd38a;
+        font-size: 12px;
+      }
+      #shell {
+        flex: 1 1 auto;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .cp-arena-slot {
+        position: relative;
+        padding: 48px 12px 12px;
+        color: #c5d0dc;
+      }
+      .preview-log {
+        margin-top: 12px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+      .preview-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+      }
+      .preview-controls button {
+        min-height: 36px;
+        font: inherit;
+      }
+      body[data-chrome="0"] .preview-controls {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="preview-banner">
+      Preview harness only. Not connected to the match server. Numbers shown after
+      “Supply fixture” are fixture data for layout, not panel defaults.
+    </p>
+    <div id="shell">
+      <div class="cp-arena-slot" id="arena">
+        <p>Arena slot. Camera and core own the map. This page does not convert coordinates.</p>
+        <div class="preview-controls">
+          <button type="button" id="show-unknown">Unknown server state</button>
+          <button type="button" id="show-fixture">Supply fixture</button>
+          <button type="button" id="show-invalid">Invalid target</button>
+          <button type="button" id="show-rejected">Rejected</button>
+        </div>
+        <pre class="preview-log" id="log">No command sent.</pre>
+      </div>
+      <div class="cp-dock" id="dock"></div>
+    </div>
+    <script type="module">
+      import {
+        applyCommandPanelShell,
+        mountCommandPanel,
+      } from "../command-panel.js";
+
+      const params = new URLSearchParams(location.search);
+      const layoutParam = params.get("layout");
+      const scenario = params.get("scenario") || "unknown";
+      document.body.dataset.chrome = params.get("chrome") === "1" ? "1" : "0";
+
+      const shell = document.getElementById("shell");
+      const dock = document.getElementById("dock");
+      const log = document.getElementById("log");
+      const layout =
+        layoutParam === "phone" || layoutParam === "desktop" ? layoutParam : "auto";
+
+      function syncShell() {
+        const mode =
+          layout === "auto"
+            ? applyCommandPanelShell(shell, "auto")
+            : applyCommandPanelShell(shell, layout);
+        return mode;
+      }
+
+      syncShell();
+      const panel = mountCommandPanel(dock, {
+        layout,
+        listenResize: layout === "auto",
+        onCommand(payload) {
+          log.textContent =
+            "onCommand payload (not sent to a server):\n" + JSON.stringify(payload, null, 2);
+        },
+      });
+
+      // Fixture for screenshots only. These amounts are not module defaults.
+      const fixture = {
+        units: [
+          { id: "b1", name: "Bot 1" },
+          { id: "b2", name: "Bot 2" },
+          { id: "b3", name: "Bot 3", selectable: false },
+        ],
+        budget: { current: 4, cap: 10 },
+        orderCount: { used: 2, max: 15 },
+        capabilities: {
+          orders: [
+            { id: "rally", cost: 1, enabled: true },
+            { id: "scout", cost: 1, enabled: true },
+            { id: "defend", cost: 2, enabled: false, disabledReason: "not_enough_cp" },
+            {
+              id: "escort",
+              cost: 3,
+              enabled: false,
+              disabledReason: "No friendly bot has the flag",
+            },
+            {
+              id: "attack",
+              cost: 3,
+              enabled: true,
+              cooldown: { remainingMs: 1000, durationMs: 2000 },
+            },
+            { id: "tag", cost: 4, enabled: false, disabledReason: "cooldown" },
+          ],
+        },
+      };
+
+      function supply() {
+        panel.update(fixture);
+      }
+
+      function chooseRally() {
+        document.querySelector('[data-action="select-all"]').click();
+        document.querySelector('[data-order="rally"]').click();
+      }
+
+      if (scenario === "supplied" || scenario === "flow" || scenario === "invalid" || scenario === "rejected" || scenario === "pending") {
+        supply();
+      }
+      if (scenario === "flow" || scenario === "invalid" || scenario === "rejected" || scenario === "pending") {
+        chooseRally();
+      }
+      if (scenario === "invalid") {
+        panel.setTarget(null, { valid: false, reason: "Outside the explored map" });
+      }
+      if (scenario === "pending" || scenario === "flow" || scenario === "rejected") {
+        panel.setTarget({ ref: "bridge-target" });
+      }
+      if (scenario === "rejected") {
+        const seq = panel.getViewModel().pendingSeq;
+        panel.update({
+          commandResult: { type: "command_rejected", seq, reason: "not_enough_cp" },
+        });
+      }
+
+      document.getElementById("show-unknown").addEventListener("click", () => {
+        panel.update({
+          units: null,
+          budget: null,
+          orderCount: null,
+          capabilities: null,
+        });
+        log.textContent = "Cleared to unknown. Nothing was sent.";
+      });
+      document.getElementById("show-fixture").addEventListener("click", () => {
+        supply();
+        log.textContent = "Fixture snapshot applied. The module did not invent these numbers.";
+      });
+      document.getElementById("show-invalid").addEventListener("click", () => {
+        supply();
+        chooseRally();
+        panel.setTarget({ ref: "nope" }, { valid: false, reason: "Outside the explored map" });
+      });
+      document.getElementById("show-rejected").addEventListener("click", () => {
+        supply();
+        chooseRally();
+        panel.setTarget({ ref: "bridge-target" });
+        const seq = panel.getViewModel().pendingSeq;
+        panel.update({
+          commandResult: { type: "command_rejected", seq, reason: "not_enough_cp" },
+        });
+      });
+
+      if (layout === "auto") {
+        window.addEventListener("resize", syncShell);
+      }
+    </script>
+  </body>
+</html>

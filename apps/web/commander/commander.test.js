@@ -168,6 +168,62 @@ test("double-tap centers a filtered unit and drag does not emit movement", () =>
   assert.equal(keyed.gesture, "ignore");
 });
 
+test("a lost pointer does not block the next drag", () => {
+  const tracker = createPointerTracker();
+  const context = { units: [], cameraState: null, bounds: null };
+  tracker.handle({ type: "pointerdown", pointerId: 4, x: 0, y: 0, timeMs: 0 }, context);
+  const replaced = tracker.handle({ type: "pointerdown", pointerId: 4, x: 5, y: 5, timeMs: 10 }, context);
+  assert.equal(replaced.gesture, "pointer-down");
+  const lost = tracker.handle({ type: "lostpointercapture", pointerId: 4, x: 5, y: 5, timeMs: 20 }, context);
+  assert.equal(lost.gesture, "cancel");
+  tracker.handle({ type: "pointerdown", pointerId: 4, x: 0, y: 0, timeMs: 30 }, context);
+  const pan = tracker.handle({ type: "pointermove", pointerId: 4, x: 30, y: 0, timeMs: 40 }, context);
+  assert.equal(pan.gesture, "pan");
+  assert.equal(pan.movementInput, null);
+  assert.equal(pan.cameraInput.panScreenX, 30);
+});
+
+test("sprite top, middle, and feet center the unit; omitted units do not", () => {
+  const camera = createCameraState({ viewportWidth: 1280, viewportHeight: 720, bounds: BOUNDS });
+  const unit = { id: "red-1", team: "red", x: 20, y: 12 };
+  const omitted = { id: "ghost", team: "bot", x: 20, y: 12 };
+  const foot = worldToScreen(camera, BOUNDS, unit.x * TILE_SIZE, unit.y * TILE_SIZE);
+  const top = worldToScreen(camera, BOUNDS, unit.x * TILE_SIZE, unit.y * TILE_SIZE - 30);
+  const middle = worldToScreen(camera, BOUNDS, unit.x * TILE_SIZE, unit.y * TILE_SIZE - 15);
+  for (const point of [foot, top, middle]) {
+    const hit = hitTestUnit(point.x, point.y, [unit], camera, BOUNDS);
+    assert.equal(hit && hit.id, "red-1");
+  }
+  const above = worldToScreen(camera, BOUNDS, unit.x * TILE_SIZE, unit.y * TILE_SIZE - 31);
+  assert.equal(hitTestUnit(above.x, above.y, [unit], camera, BOUNDS), null);
+  assert.equal(hitTestUnit(top.x, top.y, [], camera, BOUNDS), null);
+  assert.equal(hitTestUnit(top.x, top.y, [unit], camera, BOUNDS).id, "red-1");
+  assert.notEqual(hitTestUnit(top.x, top.y, [unit], camera, BOUNDS).id, omitted.id);
+  const tracker = createPointerTracker();
+  const context = { units: [unit], cameraState: camera, bounds: BOUNDS };
+  const tap = (timeMs, point) => {
+    tracker.handle({ type: "pointerdown", pointerId: 1, x: point.x, y: point.y, timeMs }, context);
+    return tracker.handle({ type: "pointerup", pointerId: 1, x: point.x, y: point.y, timeMs }, context);
+  };
+  tap(0, top);
+  const second = tap(180, top);
+  assert.equal(second.gesture, "center-on-unit");
+  assert.equal(second.unitId, "red-1");
+  assert.equal(second.cameraInput.centerOn.space, "tile");
+});
+
+test("updateCamera refreshes zoom when the viewport changes", () => {
+  const phone = createCameraState({ viewportWidth: 390, viewportHeight: 844, bounds: BOUNDS });
+  const before = cameraTransform(phone, BOUNDS).zoom;
+  const desktop = updateCamera(phone, { viewportWidth: 1920, viewportHeight: 1080 }, 16, BOUNDS);
+  const after = cameraTransform(desktop, BOUNDS);
+  assert.equal(after.zoom, 2);
+  assert.notEqual(after.zoom, before);
+  assert.equal(desktop.viewportWidth, 1920);
+  assert.equal(desktop.viewportHeight, 1080);
+  assert.equal(phone.viewportWidth, 390);
+});
+
 test("mount and unmount bind only the given target", () => {
   const listeners = new Map();
   const target = {
@@ -175,11 +231,21 @@ test("mount and unmount bind only the given target", () => {
     getBoundingClientRect() {
       return this.rect;
     },
+    captured: null,
     addEventListener(type, fn) {
       listeners.set(type, [...(listeners.get(type) ?? []), fn]);
     },
     removeEventListener(type, fn) {
       listeners.set(type, (listeners.get(type) ?? []).filter((item) => item !== fn));
+    },
+    setPointerCapture(id) {
+      this.captured = id;
+    },
+    hasPointerCapture(id) {
+      return this.captured === id;
+    },
+    releasePointerCapture() {
+      this.captured = null;
     },
   };
   const seen = [];
@@ -187,12 +253,21 @@ test("mount and unmount bind only the given target", () => {
     getContext: () => ({ units: [], cameraState: null, bounds: BOUNDS }),
   });
   assert.equal(listeners.get("pointerdown").length, 1);
-  listeners.get("pointerdown")[0]({ type: "pointerdown", pointerId: 3, clientX: 30, clientY: 40, timeStamp: 5 });
-  assert.equal(seen.length, 1);
+  assert.equal(listeners.get("lostpointercapture").length, 1);
+  const down = { type: "pointerdown", pointerId: 3, clientX: 30, clientY: 40, timeStamp: 5 };
+  listeners.get("pointerdown")[0](down);
+  assert.equal(target.captured, 3);
   assert.equal(seen[0].gesture, "pointer-down");
-  assert.equal(seen[0].movementInput, null);
+  listeners.get("lostpointercapture")[0]({ type: "lostpointercapture", pointerId: 3, clientX: 400, clientY: 400, timeStamp: 15 });
+  assert.equal(seen.at(-1).gesture, "cancel");
+  listeners.get("pointerdown")[0]({ type: "pointerdown", pointerId: 3, clientX: 12, clientY: 12, timeStamp: 20 });
+  listeners.get("pointermove")[0]({ type: "pointermove", pointerId: 3, clientX: 40, clientY: 12, timeStamp: 30 });
+  assert.equal(seen.at(-1).gesture, "pan");
+  assert.equal(seen.at(-1).movementInput, null);
   unmount();
-  assert.equal(listeners.get("pointerdown").length, 0);
+  for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel", "lostpointercapture"]) {
+    assert.equal(listeners.get(type).length, 0);
+  }
   assert.throws(() => mountCameraInput({}, () => {}), TypeError);
 });
 
@@ -305,7 +380,7 @@ test("readability frame rects match atlas.json and reroute is not an order", () 
   assert.ok(atlas.ui_orders.frames.badge_reroute);
   assert.equal(ORDER_IDS.includes("reroute"), false);
   assert.equal(READABILITY_FRAME_NAMES.includes("badge_reroute"), false);
-  assert.equal(HANDOFF_VERSION, "2026-11-05.1");
+  assert.equal(HANDOFF_VERSION, "2026-11-05.2");
 });
 
 test("example runs and reports module-ready, not integrated", () => {
