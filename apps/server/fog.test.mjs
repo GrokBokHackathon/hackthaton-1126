@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import { WebSocket } from "ws";
 import { CONFIG, Match } from "./game.js";
+import { fogPixel } from "../web/fog-overlay.js";
 import { assessOrderTarget, clientSnapshot, resetFog, seesTile, visibleMask } from "./fog.js";
 
 const BLOCK = CONFIG.visionBlockers;
@@ -13,6 +14,12 @@ function openTiles(width, height) {
     Array.from({ length: width }, (_, x) => (x === 0 || y === 0 || x === width - 1 || y === height - 1 ? 1 : 0))
   );
 }
+
+test("fog overlay colors are unexplored, 60% explored, and clear when visible", () => {
+  assert.deepEqual(fogPixel(0, 0), [0x1a, 0x10, 0x20, 255]);
+  assert.deepEqual(fogPixel(1, 0), [0x1a, 0x10, 0x20, 153]);
+  assert.deepEqual(fogPixel(1, 1), [0, 0, 0, 0]);
+});
 
 test("walls and bushes block sight; crates do not; radius is 7 tile-centers", () => {
   const tiles = openTiles(20, 20);
