@@ -321,7 +321,7 @@ export class Game {
     for (let y = 0; y < this.map.height; y++) {
       for (let x = 0; x < this.map.width; x++) {
         const tile = this.map.tiles[y][x];
-        drawTile(ctx, tile, x * CONFIG.tileSize, y * CONFIG.tileSize);
+        drawTile(ctx, tile, x * CONFIG.tileSize, y * CONFIG.tileSize, this.map.tiles);
       }
     }
 
@@ -330,8 +330,9 @@ export class Game {
     drawBase(ctx, this.map.bases.bot, "bot");
 
     // Draw flags
-    drawFlag(ctx, this.state.flags.red, "red");
-    drawFlag(ctx, this.state.flags.bot, "bot");
+    const time = Date.now();
+    drawFlag(ctx, this.state.flags.red, "red", time);
+    drawFlag(ctx, this.state.flags.bot, "bot", time);
 
     // Draw players (own player last for highlight visibility)
     const time = Date.now();
