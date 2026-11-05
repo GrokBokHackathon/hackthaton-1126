@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSquad } from "./autopilot.js";
-import { Match } from "./game.js";
+import { CONFIG, Match } from "./game.js";
 import { isWalkable, planPath } from "./path.js";
 
 function grid(rows) {
@@ -106,6 +106,53 @@ test("a tagged bot respawns after 3s at base and keeps its last order", () => {
   assert.equal(bot.state, "respawn");
   assert.equal(bot.order.source, "role-default");
   assert.ok(Math.hypot(bot.x - match.map.bases.bot.x, bot.y - match.map.bases.bot.y) < 0.2);
+});
+
+function carryHome(match, carrier, x, y) {
+  carrier.x = x;
+  carrier.y = y;
+  carrier.hasFlag = true;
+  carrier.state = "carrying";
+  carrier.dx = 0;
+  carrier.dy = 0;
+  const enemy = carrier.team === "red" ? "bot" : "red";
+  match.flags[enemy].carrier = carrier.id;
+  match.flags[enemy].x = x;
+  match.flags[enemy].y = y;
+  const maxStep = CONFIG.playerSpeed * 0.05 + 1e-6;
+  let scored = false;
+  for (let i = 0; i < 80 && carrier.hasFlag; i++) {
+    const beforeX = carrier.x;
+    const beforeY = carrier.y;
+    match.tick(0.05);
+    const step = Math.hypot(carrier.x - beforeX, carrier.y - beforeY);
+    assert.ok(step <= maxStep, `step ${step} exceeds one tick of movement`);
+    if (match.score[carrier.team] > 0) scored = true;
+  }
+  assert.equal(scored, true);
+  assert.equal(carrier.hasFlag, false);
+  assert.ok(
+    Math.hypot(carrier.x - match.map.bases[carrier.team].x, carrier.y - match.map.bases[carrier.team].y) <
+      CONFIG.flagPickupRadius
+  );
+}
+
+test("a carrier walks from the east into the capture radius and scores", () => {
+  const match = new Match();
+  spawnSquad(match, 3);
+  match.phase = "playing";
+  const carrier = [...match.players.values()].find((player) => player.team === "red" && player.role === "runner");
+  const base = match.map.bases.red;
+  carryHome(match, carrier, base.x + 1.8, base.y + 0.5);
+});
+
+test("a carrier walks from the south into the capture radius and scores", () => {
+  const match = new Match();
+  spawnSquad(match, 3);
+  match.phase = "playing";
+  const carrier = [...match.players.values()].find((player) => player.team === "red" && player.role === "runner");
+  const base = match.map.bases.red;
+  carryHome(match, carrier, base.x + 0.5, base.y + 1.8);
 });
 
 test("a tagged human still respawns after 2s", () => {

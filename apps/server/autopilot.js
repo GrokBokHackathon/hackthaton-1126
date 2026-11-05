@@ -94,20 +94,28 @@ function roleGoal(match, player) {
   return match.flags[enemyTeam(player.team)];
 }
 
-function steerToward(match, player, goal, avoid) {
-  const tiles = match.map.tiles;
+function steerToward(match, player, goal, avoid, arriveRadius) {
+  const dx = goal.x - player.x;
+  const dy = goal.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= arriveRadius) return { dx: 0, dy: 0 };
+
+  const sameTile =
+    Math.floor(player.x) === Math.floor(goal.x) && Math.floor(player.y) === Math.floor(goal.y);
+  if (sameTile) return { dx, dy };
+
   const path = planPath(
-    tiles,
+    match.map.tiles,
     { x: Math.floor(player.x), y: Math.floor(player.y) },
     { x: goal.x, y: goal.y },
     { avoid, avoidRadius: avoid.length ? AVOID_RADIUS : 0 }
   );
-  if (path.length < 2) return { dx: 0, dy: 0 };
+  if (path.length < 2) return { dx, dy };
   const next = path[1];
   return { dx: next.x + 0.5 - player.x, dy: next.y + 0.5 - player.y };
 }
 
-export function steerSquad(match) {
+export function steerSquad(match, arriveRadius = 0.7) {
   for (const player of match.players.values()) {
     if (!player.autopilot) continue;
     if (player.state === "tagged" || player.state === "respawn") continue;
@@ -121,7 +129,7 @@ export function steerSquad(match) {
         }
       }
     }
-    const steer = steerToward(match, player, goal, avoid);
+    const steer = steerToward(match, player, goal, avoid, arriveRadius);
     player.dx = steer.dx;
     player.dy = steer.dy;
   }

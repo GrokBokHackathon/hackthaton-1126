@@ -300,7 +300,7 @@ export class Match {
 
     this.tickCount++;
     const events = [];
-    steerSquad(this);
+    steerSquad(this, CONFIG.flagPickupRadius);
 
     // Update players
     for (const player of this.players.values()) {
