@@ -171,18 +171,27 @@ test("match - win and regenerate map", () => {
 test("match - movement and collision", () => {
   const match = new Match();
   const p1 = match.addPlayer("p1", "Alice", "human");
-  
-  // Place player in a known open area (center of map)
-  p1.x = match.map.width / 2;
-  p1.y = match.map.height / 2;
-  
+
+  // The map center is a wall or crate on some seeds, so a player left at
+  // (width/2, height/2) sometimes cannot move. Stand inside one floor tile,
+  // far enough from its east edge that this step stays on that tile.
+  let placed = false;
+  for (let y = 1; y < match.map.height - 1 && !placed; y++) {
+    for (let x = 1; x < match.map.width - 1; x++) {
+      if (match.map.tiles[y][x] !== 0) continue;
+      p1.x = x + 0.15;
+      p1.y = y + 0.5;
+      placed = true;
+      break;
+    }
+  }
+  assert.equal(placed, true);
+
   const startX = p1.x;
   const startY = p1.y;
-  
   match.setInput("p1", 1, 0);
   match.tick(0.1);
-  
-  // Should move (at least one coordinate should change)
-  assert.ok(p1.x > startX || p1.y !== startY, 
+
+  assert.ok(p1.x > startX || p1.y !== startY,
     `Player did not move from (${startX}, ${startY}) to (${p1.x}, ${p1.y})`);
 });
