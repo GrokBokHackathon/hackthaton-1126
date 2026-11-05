@@ -62,7 +62,7 @@ The client works on phone and desktop with responsive zoom:
 
 ## Lobby
 
-Two commanders can create a short room id and share `/lobby.html?room=CODE`. Seat 1 is red and seat 2 is bot. The match auto-starts when both seats are filled. A full room returns `room_full`. A bad id returns `invalid_room`. Messages are `room_create`, `room_join`, `room_state`, and `room_error`, plus a private `room_welcome` that is the only carrier of the resume token. See [docs/PROTOCOL.md](docs/PROTOCOL.md). `apps/server/lobby.js` and `apps/web/lobby.html` are not wired into the live server; `apps/server/LOBBY_INTEGRATION.md` is the adapter note.
+Two commanders can create a short room id and share `/lobby.html?room=CODE`. Seat 1 is red and seat 2 is bot. The match auto-starts when both seats are filled. A full room returns `room_full`. A bad id returns `invalid_room`. Messages are `room_create`, `room_join`, `room_state`, and `room_error`, plus a private `room_welcome` that is the only carrier of the resume token. See [docs/PROTOCOL.md](docs/PROTOCOL.md). The live `/ws` server routes those messages through `apps/server/lobby-router.js`. One Match is created per started room. The web client still does not read the commander handoff.
 
 ## Verified deployment
 
