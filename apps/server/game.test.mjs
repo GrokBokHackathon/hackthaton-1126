@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateMap, Match } from "./game.js";
+import { CONFIG, generateMap, Match } from "./game.js";
 
 test("map generation - connectivity between bases", () => {
   for (let i = 0; i < 10; i++) {
@@ -171,18 +171,68 @@ test("match - win and regenerate map", () => {
 test("match - movement and collision", () => {
   const match = new Match();
   const p1 = match.addPlayer("p1", "Alice", "human");
-  
-  // Place player in a known open area (center of map)
-  p1.x = match.map.width / 2;
-  p1.y = match.map.height / 2;
-  
+  const step = CONFIG.playerSpeed * 0.1;
+
+  // The old spawn stood on the corner (width/2, height/2). The 0.3 footprint
+  // reaches the four tiles around that corner, and the generator paints some
+  // of them as walls or crates. That is a blocked start, not a stuck mover.
+  // The top-left 4x4 base is floor on every seed.
+  assert.equal(match.map.tiles[2][2], 0);
+  assert.equal(match.map.tiles[2][1], 0);
+  assert.equal(match.map.tiles[2][3], 0);
+  p1.x = 2.5;
+  p1.y = 2.5;
+
   const startX = p1.x;
   const startY = p1.y;
-  
   match.setInput("p1", 1, 0);
   match.tick(0.1);
-  
-  // Should move (at least one coordinate should change)
-  assert.ok(p1.x > startX || p1.y !== startY, 
-    `Player did not move from (${startX}, ${startY}) to (${p1.x}, ${p1.y})`);
+
+  assert.ok(
+    Math.abs(p1.x - (startX + step)) < 1e-9,
+    `Player did not move from (${startX}, ${startY}) to (${p1.x}, ${p1.y})`
+  );
+  assert.equal(p1.y, startY);
+
+  // A wall in the next tile still stops the footprint before it enters.
+  const wallX = 3;
+  match.map.tiles[2][wallX] = 1;
+  p1.x = wallX - CONFIG.footprintRadius - 0.05;
+  p1.y = 2.5;
+  const blockedX = p1.x;
+  match.setInput("p1", 1, 0);
+  match.tick(0.1);
+  assert.ok(
+    p1.x <= blockedX + 1e-9,
+    `Player entered the wall from ${blockedX} to ${p1.x}`
+  );
+  assert.ok(p1.x + CONFIG.footprintRadius < wallX);
+  assert.equal(Math.floor(p1.x), 2);
+
+  // Same input at the old center: a wall under the point holds the player,
+  // and clearing the footprint tiles lets that exact step through.
+  const cx = match.map.width / 2;
+  const cy = match.map.height / 2;
+  const radius = CONFIG.footprintRadius;
+  const cells = [
+    [Math.floor(cx - radius), Math.floor(cy - radius)],
+    [Math.floor(cx + radius), Math.floor(cy - radius)],
+    [Math.floor(cx - radius), Math.floor(cy + radius)],
+    [Math.floor(cx + radius), Math.floor(cy + radius)],
+  ];
+  match.map.tiles[Math.floor(cy)][Math.floor(cx)] = 1;
+  p1.x = cx;
+  p1.y = cy;
+  match.setInput("p1", 1, 0);
+  match.tick(0.1);
+  assert.equal(p1.x, cx);
+  assert.equal(p1.y, cy);
+
+  for (const [tx, ty] of cells) match.map.tiles[ty][tx] = 0;
+  p1.x = cx;
+  p1.y = cy;
+  match.setInput("p1", 1, 0);
+  match.tick(0.1);
+  assert.ok(Math.abs(p1.x - (cx + step)) < 1e-9);
+  assert.equal(p1.y, cy);
 });
