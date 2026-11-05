@@ -1,4 +1,5 @@
 import { CONFIG, drawTile, drawPlayer, drawFlag, drawBase } from "./assets.js";
+import { spriteLoader } from "./spriteLoader.js";
 
 export class Game {
   constructor(canvasId, serverOrigin) {
@@ -28,10 +29,23 @@ export class Game {
 
     this.zoom = 2;
     this.useSmoothing = false;
+    this.spritesLoaded = false;
 
     this.setupInput();
     this.setupTouch();
     this.setupCanvas();
+    this.loadSprites();
+  }
+  
+  async loadSprites() {
+    this.spritesLoaded = await spriteLoader.load();
+    if (!this.spritesLoaded) {
+      console.warn("Failed to load sprites, using fallback rendering");
+    }
+    // Expose for testing
+    if (typeof window !== "undefined") {
+      window.spritesLoaded = this.spritesLoaded;
+    }
   }
 
   setupCanvas() {
@@ -55,6 +69,7 @@ export class Game {
           this.useSmoothing = true;
         }
         
+        // Apply image smoothing setting - false for crisp pixel art
         this.ctx.imageSmoothingEnabled = this.useSmoothing;
         
         // Canvas shows viewport
