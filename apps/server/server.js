@@ -220,7 +220,7 @@ setInterval(() => {
   }
 
   // Broadcast state
-  if (match.phase === "playing" || match.phase === "waiting") {
+  if (match.phase === "playing" || match.phase === "waiting" || match.phase === "sudden_death" || match.phase === "results") {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);
       if (!player || ws.readyState !== ws.OPEN) continue;
