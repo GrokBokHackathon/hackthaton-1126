@@ -1,65 +1,76 @@
-// Issue 12 checks against an isolated server process.
-// Same-identity reconnect and issue 19 room routing are asserted as required
-// capabilities. On current main those assertions fail on purpose. A new socket
-// that receives a fresh snapshot is not counted as a resume.
+// Required acceptance is the PR 48 room flow.
+// welcome.started is true only on the call that fills seat 2. Resume returns
+// started false and the public room phase stays match. The playing clock must
+// still advance. Legacy join is optional and is not a resume.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runProbe } from "../scripts/issue12-two-session-smoke.mjs";
 
-const PROBE_TOKEN_PREFIX = "issue12-probe-";
 const reportPromise = runProbe();
+const scriptSource = readFileSync(new URL("../scripts/issue12-two-session-smoke.mjs", import.meta.url), "utf8");
 
-test("two distinct websocket sessions share a live snapshot", { timeout: 25000 }, async () => {
-  const report = await reportPromise;
-  assert.equal(report.twoSessions.result, "pass");
-  assert.equal(report.twoSessions.distinctPlayerIds, true);
-  assert.deepEqual(report.twoSessions.teams, ["red", "red"]);
-  assert.equal(report.twoSessions.bothVisibleToEachOther, true);
-  assert.equal(report.twoSessions.pingPong, true);
-  assert.equal(report.twoSessions.inputAppliedOnSnapshot, true);
-  assert.equal(report.twoSessions.phase, "playing");
-  assert.equal(report.freshConnection.previousPlayerId === report.freshConnection.newPlayerId, false);
+test("probe source does not hardcode a room id", () => {
+  assert.equal(scriptSource.includes("AB2K"), false);
+  assert.equal(scriptSource.includes("roomId: \"AB"), false);
 });
 
-test("a new connection after close is a fresh snapshot, not a resume", { timeout: 25000 }, async () => {
+test("required: two commander sockets create a room and join that room id", { timeout: 25000 }, async () => {
   const report = await reportPromise;
-  assert.equal(report.freshConnection.result, "pass");
-  assert.equal(report.freshConnection.receivedHelloBeforeJoin, true);
-  assert.equal(report.freshConnection.noSnapshotBeforeJoin, true);
-  assert.equal(report.freshConnection.previousAbsentFromFreshSnapshot, true);
-  assert.equal(report.freshConnection.previousAbsentFromOtherSession, true);
-  assert.equal(report.freshConnection.newPlayerVisibleToOtherSession, true);
-  assert.equal(report.freshConnection.welcomeMapWidth, 64);
-  assert.equal(report.freshConnection.welcomeMapHeight, 40);
-  assert.notEqual(report.freshConnection.previousPlayerId, report.freshConnection.newPlayerId);
+  const two = report.required.twoCommanderSessions;
+  assert.equal(two.acceptance, true);
+  assert.equal(two.roomIdSource === "room_welcome" || two.roomIdSource === "none", true);
+  assert.equal(two.result, "pass", two.reason);
+  assert.equal(two.creatorSeat, 1);
+  assert.equal(two.creatorTeam, "red");
+  assert.equal(two.joinerSeat, 2);
+  assert.equal(two.joinerTeam, "bot");
+  assert.equal(two.joinerStarted, true);
+  assert.equal(two.roomPhase, "match");
+  assert.equal(two.sameRoom, true);
+  assert.equal(two.mapSeedSeen, true);
 });
 
-test("same-identity reconnect restores the dropped player", { timeout: 25000 }, async () => {
+test("required: a new connection room_join with the resume token restores seat 1", { timeout: 25000 }, async () => {
   const report = await reportPromise;
-  assert.equal(
-    report.sameIdentityReconnect.identityRestored,
-    true,
-    report.sameIdentityReconnect.reason
-  );
-  assert.equal(report.sameIdentityReconnect.result, "pass");
+  const resume = report.required.sameIdentityReconnect;
+  assert.equal(resume.acceptance, true);
+  assert.equal(resume.protocol, "room_join-with-private-token");
+  assert.equal(resume.usedLegacyJoin, false);
+  assert.equal(resume.sameSocketAsCreator, false);
+  assert.notEqual(resume.roomIdSource, "hardcoded");
+  assert.equal(resume.identityRestored, true, resume.reason);
+  assert.equal(resume.result, "pass");
+  assert.equal(resume.restoredSeat, 1);
+  assert.equal(resume.restoredTeam, "red");
+  assert.equal(resume.restoredStarted, false);
+  assert.equal(resume.roomPhase, "match");
+  assert.equal(resume.matchClockAdvanced, true);
+  assert.equal(resume.tokenMatched, true);
+  assert.equal(resume.mapSeedMatched, true);
 });
 
-test("live /ws answers room_create with room_welcome", { timeout: 25000 }, async () => {
+test("public frames did not carry the private token", { timeout: 25000 }, async () => {
   const report = await reportPromise;
-  assert.equal(report.lobbyRouting.tokenOnPublic, false);
-  assert.equal(
-    report.lobbyRouting.sawRoomWelcome,
-    true,
-    report.lobbyRouting.reason
-  );
-  assert.equal(report.lobbyRouting.result, "pass");
+  assert.equal(report.tokenOnPublic, false);
 });
 
-test("probe report redacts the private token", { timeout: 25000 }, async () => {
+test("optional diagnostic: legacy join is not resume acceptance", { timeout: 25000 }, async () => {
+  const report = await reportPromise;
+  const legacy = report.optionalDiagnostics.legacyJoin;
+  assert.equal(legacy.acceptance, false);
+  assert.equal(legacy.countsAsReconnect, false);
+  assert.equal(legacy.result, "observed");
+  assert.equal(legacy.distinctPlayerIds, true);
+  assert.equal(legacy.droppedIdRestored, false);
+  assert.deepEqual(legacy.teams, ["red", "red"]);
+});
+
+test("probe report does not contain a token field or a fixed example room id", { timeout: 25000 }, async () => {
   const report = await reportPromise;
   const blob = JSON.stringify(report);
-  assert.equal(blob.includes(PROBE_TOKEN_PREFIX), false);
-  assert.equal(blob.includes("[redacted]"), false);
-  assert.equal(report.lobbyRouting.tokenOnPublic, false);
+  assert.equal(blob.includes("resumeToken"), false);
+  assert.equal(blob.includes("AB2K"), false);
+  assert.equal(report.tokenOnPublic, false);
 });

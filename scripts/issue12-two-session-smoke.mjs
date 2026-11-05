@@ -1,11 +1,18 @@
-// Issue 12 headless probe: two live /ws sessions, a fresh snapshot, and
-// same-identity reconnect. Issue 19 room routing is measured, not assumed.
-// This file does not import lobby.js and does not change the server.
+// Issue 12 headless probe.
+// Required acceptance follows the PR 48 room contract:
+//   connection A: room_create → private room_welcome (roomId + resume token)
+//   connection B: room_join { roomId } with no token → seat 2
+//   connection C: room_join { roomId, resumeToken } after A closes → seat 1 restored
+// welcome.started is true only on the call that fills seat 2. A later resume
+// returns started false so the server does not create a second Match. The
+// public room phase stays "match", and the playing clock is required to move.
+// The room id always comes from A's room_welcome. This file never invents one.
+// Legacy `join` is an optional diagnostic. It is not a resume and is not acceptance.
 //
 // Exit codes when run directly:
-//   0  supported checks passed and same-identity reconnect and room routing answered
-//   2  supported checks passed, and at least one capability is unsupported
-//   1  a supported check failed, a token leaked into a public message, or the probe crashed
+//   0  required two-commander session and required resume both passed
+//   2  a required capability is unsupported (protocol gap, not a pass)
+//   1  a required check answered incorrectly, a public frame leaked a token, or the probe crashed
 
 import { createRequire } from "node:module";
 import { once } from "node:events";
@@ -17,27 +24,23 @@ const require = createRequire(new URL("../apps/server/package.json", import.meta
 const { WebSocket } = require("ws");
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const serverDir = path.join(repoRoot, "apps", "server");
-const PROBE_TOKEN_PREFIX = "issue12-probe-";
+const serverDir = process.env.ISSUE12_SERVER_DIR
+  ? path.resolve(process.env.ISSUE12_SERVER_DIR)
+  : path.join(repoRoot, "apps", "server");
+const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const OPEN_MS = 3000;
-const MESSAGE_MS = 3000;
-const STATE_MS = 2000;
-const DIR_MS = 1500;
-const LOBBY_QUIET_MS = 500;
-const PRE_JOIN_QUIET_MS = 300;
+const ROOM_MS = 2000;
+const CLOCK_MS = 2000;
+const LEGACY_MS = 3000;
 const SERVER_READY_MS = 5000;
 const STOP_MS = 3000;
 
-function probeToken() {
-  return `${PROBE_TOKEN_PREFIX}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-}
-
-export function redactText(text, token) {
-  const raw = String(text);
-  const withoutToken = token ? raw.split(token).join("[redacted]") : raw;
-  return withoutToken
-    .replace(new RegExp(`${PROBE_TOKEN_PREFIX}[a-z0-9]+`, "gi"), "[redacted]")
-    .replace(/"resumeToken"\s*:\s*"[^"]*"/g, '"resumeToken":"[redacted]"');
+export function redactText(text, tokens) {
+  let raw = String(text);
+  for (const token of tokens || []) {
+    if (token) raw = raw.split(token).join("[redacted]");
+  }
+  return raw.replace(/"resumeToken"\s*:\s*"[^"]*"/g, '"resumeToken":"[redacted]"');
 }
 
 function delay(ms) {
@@ -110,6 +113,7 @@ function track(session) {
   });
   session.ws.on("error", () => {});
   session.messages = messages;
+  session.ws.messages = messages;
   return session;
 }
 
@@ -118,8 +122,11 @@ async function openSocket(port, bucket) {
   bucket.push(ws);
   const session = track({ ws });
   await onceWithTimeout(ws, "open", OPEN_MS, "websocket open");
-  const hello = await waitFor(session, (msg) => msg.type === "hello", MESSAGE_MS);
-  return { session, hello };
+  const hello = await waitFor(session, (msg) => msg.type === "hello", OPEN_MS);
+  if (hello.type !== "hello" || hello.service !== "flag-raid") {
+    throw new Error("hello did not match the live flag-raid contract");
+  }
+  return session;
 }
 
 function waitFor(session, predicate, timeoutMs) {
@@ -134,13 +141,22 @@ function waitFor(session, predicate, timeoutMs) {
       }
       if (Date.now() - started > timeoutMs) {
         const types = session.messages.map((msg) => msg.type).join(",") || "(none)";
-        reject(new Error(`timed out after ${timeoutMs}ms waiting for a message; queued types: ${types}`));
+        reject(new Error(`timed out after ${timeoutMs}ms; queued types: ${types}`));
         return;
       }
       setTimeout(check, 15);
     };
     check();
   });
+}
+
+async function waitForOptional(session, predicate, timeoutMs) {
+  try {
+    return await waitFor(session, predicate, timeoutMs);
+  } catch (error) {
+    if (String(error.message || error).startsWith("timed out")) return null;
+    throw error;
+  }
 }
 
 async function closeSocket(ws) {
@@ -155,283 +171,421 @@ async function closeSocket(ws) {
   if (ws.readyState !== ws.CLOSED) ws.terminate();
 }
 
-function playerById(state, id) {
-  return Array.isArray(state.players) ? state.players.find((player) => player.id === id) : undefined;
+function validRoomId(roomId) {
+  return typeof roomId === "string" && roomId.length === 4 && [...roomId].every((char) => ROOM_ALPHABET.includes(char));
 }
 
-function summarizeLobby(messages) {
-  const summary = {
-    sawRoomWelcome: false,
-    sawRoomState: false,
-    sawRoomError: false,
-    errorCodes: [],
-    tokenOnPublic: false,
-    welcomeCarriedToken: false,
-  };
-  for (const msg of messages) {
-    if (!msg || typeof msg !== "object") continue;
-    if ((msg.type === "room_state" || msg.type === "room_error") && Object.prototype.hasOwnProperty.call(msg, "resumeToken")) {
-      summary.tokenOnPublic = true;
-    }
-    if (msg.type === "room_welcome") {
-      summary.sawRoomWelcome = true;
-      summary.welcomeCarriedToken = typeof msg.resumeToken === "string" && msg.resumeToken.length > 0;
-    } else if (msg.type === "room_state") {
-      summary.sawRoomState = true;
-    } else if (msg.type === "room_error") {
-      summary.sawRoomError = true;
-      if (typeof msg.error === "string") summary.errorCodes.push(msg.error);
-    }
-  }
-  return summary;
+function takeToken(msg) {
+  const token = typeof msg?.resumeToken === "string" && msg.resumeToken.length > 0 ? msg.resumeToken : null;
+  if (msg && Object.prototype.hasOwnProperty.call(msg, "resumeToken")) delete msg.resumeToken;
+  return token;
 }
 
-function lobbyResult(summary) {
-  if (summary.tokenOnPublic) {
-    return {
-      result: "fail",
-      ...summary,
-      reason: "A public room message included a private token field. The value was not recorded.",
-    };
-  }
-  if (summary.sawRoomWelcome) {
-    return {
-      result: "pass",
-      ...summary,
-      reason: "Live /ws sent room_welcome. The token value was not recorded.",
-    };
-  }
-  if (summary.sawRoomState || summary.sawRoomError) {
-    return {
-      result: "partial",
-      ...summary,
-      reason: "Live /ws answered room routing without room_welcome. The planned contract is not fully served.",
-    };
-  }
+function leakedToken(msg, token) {
+  if (!token || !msg || msg.type === "room_welcome") return false;
+  return JSON.stringify(msg).includes(token);
+}
+
+function remember(bucket, msg) {
+  if (msg) bucket.push(msg);
+  return msg;
+}
+
+function unsupportedSessions(reason) {
   return {
     result: "unsupported",
-    ...summary,
-    reason:
-      "UNSUPPORTED: live /ws did not send room_welcome, room_state, or room_error after room_create and room_join. Issue 19 routing is not served on this main. The planned contract was not treated as live.",
+    acceptance: true,
+    roomId: null,
+    roomIdSource: "none",
+    creatorSeat: null,
+    creatorTeam: null,
+    creatorStarted: null,
+    joinerSeat: null,
+    joinerTeam: null,
+    joinerStarted: null,
+    roomPhase: null,
+    sameRoom: false,
+    mapSeedSeen: false,
+    reason,
   };
+}
+
+function unsupportedResume(reason) {
+  return {
+    result: "unsupported",
+    acceptance: true,
+    protocol: "room_join-with-private-token",
+    identityRestored: false,
+    attempted: false,
+    sameSocketAsCreator: false,
+    roomIdSource: "none",
+    restoredSeat: null,
+    restoredTeam: null,
+    restoredStarted: null,
+    roomPhase: null,
+    matchClockAdvanced: null,
+    tokenMatched: false,
+    mapSeedMatched: null,
+    usedLegacyJoin: false,
+    reason,
+  };
+}
+
+async function watchPlayingClock(session) {
+  const first = await waitForOptional(
+    session,
+    (msg) => msg.type === "state" && msg.phase === "playing" && typeof msg.remainingMs === "number",
+    CLOCK_MS
+  );
+  if (!first) return { sawPlaying: false, advanced: false };
+  const later = await waitForOptional(
+    session,
+    (msg) =>
+      msg.type === "state" &&
+      msg.phase === "playing" &&
+      typeof msg.remainingMs === "number" &&
+      msg.remainingMs < first.remainingMs,
+    CLOCK_MS
+  );
+  return { sawPlaying: true, advanced: Boolean(later) };
 }
 
 function exitCodeFor(report) {
-  if (report.twoSessions.result !== "pass") return 1;
-  if (report.lobbyRouting.result === "fail") return 1;
-  if (report.freshConnection.result === "fail" || report.sameIdentityReconnect.result === "fail") return 1;
-  const reconnectReady = report.sameIdentityReconnect.result === "pass";
-  const lobbyReady = report.lobbyRouting.result === "pass";
-  if (reconnectReady && lobbyReady) return 0;
-  if (report.freshConnection.result === "pass" || reconnectReady) return 2;
+  if (report.tokenOnPublic) return 1;
+  const two = report.required.twoCommanderSessions.result;
+  const resume = report.required.sameIdentityReconnect.result;
+  if (two === "fail" || resume === "fail") return 1;
+  if (two === "pass" && resume === "pass") return 0;
+  if (two === "unsupported" || resume === "unsupported") return 2;
   return 1;
 }
 
+async function legacyDiagnostic(port, bucket) {
+  const diagnostic = {
+    acceptance: false,
+    countsAsReconnect: false,
+    result: "diagnostic-error",
+    distinctPlayerIds: null,
+    teams: null,
+    droppedIdRestored: null,
+    note: "Legacy join allocates a new player id. It is not room_join and it is not acceptance.",
+  };
+  try {
+    const first = await openSocket(port, bucket);
+    const second = await openSocket(port, bucket);
+    first.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human" }));
+    second.ws.send(JSON.stringify({ type: "join", name: "Bea", kind: "human" }));
+    const welcomeA = await waitFor(first, (msg) => msg.type === "welcome", LEGACY_MS);
+    const welcomeB = await waitFor(second, (msg) => msg.type === "welcome", LEGACY_MS);
+    const distinct = welcomeA.playerId !== welcomeB.playerId && typeof welcomeA.playerId === "string";
+    await closeSocket(first.ws);
+    const fresh = await openSocket(port, bucket);
+    fresh.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human", playerId: welcomeA.playerId }));
+    const welcomeFresh = await waitFor(fresh, (msg) => msg.type === "welcome", LEGACY_MS);
+    diagnostic.result = "observed";
+    diagnostic.distinctPlayerIds = distinct;
+    diagnostic.teams = [welcomeA.team, welcomeB.team];
+    diagnostic.droppedIdRestored = welcomeFresh.playerId === welcomeA.playerId;
+    return diagnostic;
+  } catch {
+    return diagnostic;
+  }
+}
+
 export async function runProbe() {
-  const token = probeToken();
   const server = startServer();
   const sockets = [];
+  const seen = [];
+  let creatorToken = null;
+  let joinerToken = null;
+  let resumeToken = null;
   try {
     const port = await server.ready;
-    const healthBefore = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) });
-    const healthBody = await healthBefore.json();
-    if (healthBefore.status !== 200 || healthBody.ok !== true || healthBody.service !== "flag-raid" || healthBody.websocket !== "/ws") {
+    const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) });
+    const healthBody = await health.json();
+    if (health.status !== 200 || healthBody.ok !== true || healthBody.service !== "flag-raid" || healthBody.websocket !== "/ws") {
       throw new Error("health endpoint did not match the live flag-raid contract");
     }
 
-    const firstOpen = await openSocket(port, sockets);
-    const secondOpen = await openSocket(port, sockets);
-    for (const opened of [firstOpen, secondOpen]) {
-      if (opened.hello.type !== "hello" || opened.hello.service !== "flag-raid" || typeof opened.hello.heartbeatMs !== "number") {
-        throw new Error("hello did not match the live flag-raid contract");
-      }
-    }
-
-    const first = firstOpen.session;
-    const second = secondOpen.session;
-    first.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human" }));
-    second.ws.send(JSON.stringify({ type: "join", name: "Bea", kind: "human" }));
-    const welcomeA = await waitFor(first, (msg) => msg.type === "welcome", MESSAGE_MS);
-    const welcomeB = await waitFor(second, (msg) => msg.type === "welcome", MESSAGE_MS);
-    for (const welcome of [welcomeA, welcomeB]) {
-      if (welcome.team !== "red" || typeof welcome.playerId !== "string" || welcome.playerId.length === 0) {
-        throw new Error("welcome did not assign a red human playerId");
-      }
-      if (!welcome.map || welcome.map.width !== 64 || welcome.map.height !== 40 || !Array.isArray(welcome.map.tiles)) {
-        throw new Error("welcome map snapshot was not the live 64x40 grid");
-      }
-    }
-    if (welcomeA.playerId === welcomeB.playerId) {
-      throw new Error("two sessions received the same playerId");
-    }
-
-    const seesBoth = (msg) =>
-      msg.type === "state" && playerById(msg, welcomeA.playerId) && playerById(msg, welcomeB.playerId);
-    const stateA = await waitFor(first, seesBoth, STATE_MS);
-    const stateB = await waitFor(second, seesBoth, STATE_MS);
-    for (const state of [stateA, stateB]) {
-      if (state.phase !== "playing" || state.fog?.team !== "red" || state.fog?.encoding !== "row-major-u8") {
-        throw new Error("shared state snapshot did not match the live playing snapshot");
-      }
-      const ada = playerById(state, welcomeA.playerId);
-      const bea = playerById(state, welcomeB.playerId);
-      if (ada.name !== "Ada" || bea.name !== "Bea" || ada.team !== "red" || bea.team !== "red" || ada.kind !== "human" || bea.kind !== "human") {
-        throw new Error("shared snapshot did not list the two human sessions");
-      }
-    }
-
-    first.ws.send(JSON.stringify({ type: "ping" }));
-    const pong = await waitFor(first, (msg) => msg.type === "pong", MESSAGE_MS);
-    if (pong.type !== "pong") throw new Error("ping did not return pong");
-
-    for (let i = first.messages.length - 1; i >= 0; i -= 1) {
-      if (first.messages[i].type === "state") first.messages.splice(i, 1);
-    }
-    first.ws.send(JSON.stringify({ type: "input", dx: 1, dy: 0 }));
-    const turned = await waitFor(
-      first,
-      (msg) => msg.type === "state" && playerById(msg, welcomeA.playerId)?.dir === "right",
-      DIR_MS
+    const creator = await openSocket(port, sockets);
+    creator.messages.length = 0;
+    creator.ws.send(JSON.stringify({ type: "room_create" }));
+    const createdRaw = remember(
+      seen,
+      await waitForOptional(creator, (msg) => msg.type === "room_welcome" || msg.type === "room_error", ROOM_MS)
     );
-    if (playerById(turned, welcomeA.playerId)?.dir !== "right") {
-      throw new Error("input did not show up on a later state snapshot");
-    }
-
-    const lobbyOpen = await openSocket(port, sockets);
-    const lobby = lobbyOpen.session;
-    lobby.messages.length = 0;
-    lobby.ws.send(JSON.stringify({ type: "room_create" }));
-    lobby.ws.send(JSON.stringify({ type: "room_join", roomId: "AB2K", resumeToken: token }));
-    await delay(LOBBY_QUIET_MS);
-    const lobbySummary = summarizeLobby(lobby.messages);
-    const lobbyRouting = lobbyResult(lobbySummary);
-
-    first.ws.close();
-    await onceWithTimeout(first.ws, "close", OPEN_MS, "first session close");
-    const afterDrop = await waitFor(
-      second,
-      (msg) => msg.type === "state" && !playerById(msg, welcomeA.playerId) && playerById(msg, welcomeB.playerId),
-      STATE_MS
+    const createdState = remember(
+      seen,
+      await waitForOptional(creator, (msg) => msg.type === "room_state" || msg.type === "room_error", 200)
     );
-    if (playerById(afterDrop, welcomeA.playerId)) {
-      throw new Error("dropped player was still in the other session snapshot");
-    }
 
-    const freshOpen = await openSocket(port, sockets);
-    const fresh = freshOpen.session;
-    if (freshOpen.hello.type !== "hello") throw new Error("fresh connection did not receive hello");
-    await delay(PRE_JOIN_QUIET_MS);
-    const prematureWelcome = fresh.messages.some((msg) => msg.type === "welcome" || msg.type === "state");
-    if (prematureWelcome) {
-      throw new Error("a new socket received a player snapshot before join");
-    }
-    fresh.ws.send(
-      JSON.stringify({
-        type: "join",
-        name: "Ada",
-        kind: "human",
-        playerId: welcomeA.playerId,
-        resumeToken: token,
-      })
-    );
-    const welcomeFresh = await waitFor(fresh, (msg) => msg.type === "welcome", MESSAGE_MS);
-    if (!welcomeFresh.map || welcomeFresh.map.width !== 64 || welcomeFresh.map.height !== 40 || !Array.isArray(welcomeFresh.map.tiles)) {
-      throw new Error("fresh welcome did not include a 64x40 map snapshot");
-    }
-    const freshState = await waitFor(fresh, (msg) => msg.type === "state" && Array.isArray(msg.players) && msg.players.length > 0, STATE_MS);
-    const previousAbsent = !playerById(freshState, welcomeA.playerId);
-    const newIdentity = welcomeFresh.playerId !== welcomeA.playerId;
-    const selfPresent = Boolean(playerById(freshState, welcomeFresh.playerId));
-    if (!selfPresent) throw new Error("fresh snapshot did not include the welcomed player");
-    const stillOnSecond = newIdentity
-      ? await waitFor(
-          second,
-          (msg) => msg.type === "state" && playerById(msg, welcomeFresh.playerId),
-          STATE_MS
-        )
-      : await waitFor(second, (msg) => msg.type === "state" && playerById(msg, welcomeA.playerId), STATE_MS);
-    const otherDroppedOld = !playerById(stillOnSecond, welcomeA.playerId);
+    let two = null;
+    let resume = null;
+    let roomId = null;
 
-    const freshIsNewSession = newIdentity && previousAbsent && otherDroppedOld;
-    const identityRestored = !newIdentity && !previousAbsent && playerById(stillOnSecond, welcomeA.playerId);
-    const freshConnection = freshIsNewSession
-      ? {
-          result: "pass",
-          previousPlayerId: welcomeA.playerId,
-          newPlayerId: welcomeFresh.playerId,
-          previousAbsentFromFreshSnapshot: true,
-          previousAbsentFromOtherSession: true,
-          newPlayerVisibleToOtherSession: true,
-          receivedHelloBeforeJoin: true,
-          noSnapshotBeforeJoin: true,
-          welcomeMapWidth: welcomeFresh.map.width,
-          welcomeMapHeight: welcomeFresh.map.height,
-          note: "This is a new connection with a fresh welcome map and a fresh state snapshot. It is not a resume of the closed session.",
-        }
-      : {
-          result: identityRestored ? "not-observed" : "fail",
-          previousPlayerId: welcomeA.playerId,
-          newPlayerId: welcomeFresh.playerId,
-          previousAbsentFromFreshSnapshot: previousAbsent,
-          previousAbsentFromOtherSession: otherDroppedOld,
-          newPlayerVisibleToOtherSession: Boolean(playerById(stillOnSecond, welcomeFresh.playerId)),
-          receivedHelloBeforeJoin: true,
-          noSnapshotBeforeJoin: true,
-          welcomeMapWidth: welcomeFresh.map.width,
-          welcomeMapHeight: welcomeFresh.map.height,
-          note: identityRestored
-            ? "The new socket kept the dropped playerId, so this was not a fresh identity."
-            : "Fresh join produced a mixed snapshot. Same-identity reconnect was not established, and a clean new identity was not established either.",
-        };
-    const sameIdentityReconnect = identityRestored
-      ? {
-          result: "pass",
-          identityRestored: true,
-          reason: "The new socket resumed the dropped playerId and the snapshot still contained that player.",
-        }
-      : freshIsNewSession
-        ? {
-            result: "unsupported",
-            identityRestored: false,
-            reason:
-              "UNSUPPORTED: same-identity reconnect/resync is not provided. Close removes the player. A new socket receives hello only, and join allocates a new playerId plus a fresh snapshot that does not include the dropped id. Putting the previous id on join does not restore it.",
-          }
-        : {
+    if (!createdRaw) {
+      const stray = creator.messages.find((msg) => msg.type === "room_state" || msg.type === "room_error" || msg.type === "room_welcome");
+      const reason = stray
+        ? "room_create produced a room frame that was not a private room_welcome, so no room id was taken from a welcome and room_join was not sent."
+        : "UNSUPPORTED: room_create on its own connection produced no room_welcome. No live roomId was issued, so room_join was not sent and no room id was invented.";
+      two = stray ? { ...unsupportedSessions(reason), result: "fail" } : unsupportedSessions(reason);
+      resume = stray ? { ...unsupportedResume(reason), result: "fail" } : unsupportedResume(reason);
+    } else if (createdRaw.type === "room_error") {
+      const reason = `room_create returned room_error ${createdRaw.error || "unknown"}. A correct create is not an error, and no resume was attempted.`;
+      two = { ...unsupportedSessions(reason), result: "fail" };
+      resume = { ...unsupportedResume(reason), result: "fail" };
+    } else {
+      creatorToken = takeToken(createdRaw);
+      roomId = createdRaw.roomId;
+      const createOk =
+        createdRaw.ok === true &&
+        validRoomId(roomId) &&
+        createdRaw.seat === 1 &&
+        createdRaw.team === "red" &&
+        createdRaw.started === false &&
+        creatorToken !== null;
+      if (!createOk) {
+        const reason = "room_welcome did not match seat 1 / red / started false with a server-issued room id. Resume was not attempted.";
+        two = { ...unsupportedSessions(reason), result: "fail", roomId: validRoomId(roomId) ? roomId : null, roomIdSource: "room_welcome" };
+        resume = { ...unsupportedResume(reason), result: "fail", roomIdSource: "room_welcome" };
+      } else if (leakedToken(createdState, creatorToken) || seen.some((msg) => leakedToken(msg, creatorToken))) {
+        two = { ...unsupportedSessions("A public frame carried the private token."), result: "fail", roomId, roomIdSource: "room_welcome" };
+        resume = { ...unsupportedResume("A public frame carried the private token."), result: "fail", roomIdSource: "room_welcome" };
+      } else {
+        const joiner = await openSocket(port, sockets);
+        joiner.messages.length = 0;
+        joiner.ws.send(JSON.stringify({ type: "room_join", roomId }));
+        const joinedRaw = remember(
+          seen,
+          await waitForOptional(joiner, (msg) => msg.type === "room_welcome" || msg.type === "room_error", ROOM_MS)
+        );
+        const joinedState = remember(
+          seen,
+          await waitForOptional(
+            joiner,
+            (msg) => msg.type === "room_state" && msg.roomId === roomId && msg.phase === "match",
+            ROOM_MS
+          )
+        );
+        joinerToken = joinedRaw && joinedRaw.type === "room_welcome" ? takeToken(joinedRaw) : null;
+        const publicLeak = [createdState, joinedRaw, joinedState, ...joiner.messages, ...creator.messages].some((msg) =>
+          leakedToken(msg, creatorToken) || leakedToken(msg, joinerToken)
+        );
+        const joinOk =
+          joinedRaw &&
+          joinedRaw.type === "room_welcome" &&
+          joinedRaw.ok === true &&
+          joinedRaw.roomId === roomId &&
+          joinedRaw.seat === 2 &&
+          joinedRaw.team === "bot" &&
+          joinedRaw.started === true &&
+          joinerToken !== null &&
+          joinerToken !== creatorToken &&
+          joinedState &&
+          joinedState.roomId === roomId &&
+          joinedState.phase === "match";
+        const mapSeed = joinedState ? joinedState.mapSeed : undefined;
+        const mapSeedSeen = mapSeed !== undefined && mapSeed !== null && joinedRaw && joinedRaw.mapSeed === mapSeed;
+        if (publicLeak) {
+          two = {
+            ...unsupportedSessions("A public frame carried the private token."),
             result: "fail",
-            identityRestored: false,
-            reason: "The reconnect probe finished in an unexpected mixed state.",
+            roomId,
+            roomIdSource: "room_welcome",
           };
+        } else if (!joinOk) {
+          const why = !joinedRaw
+            ? "room_join of the created room produced no room_welcome."
+            : joinedRaw.type !== "room_welcome"
+              ? `room_join of the created room answered ${joinedRaw.type}${joinedRaw.error ? " " + joinedRaw.error : ""}.`
+              : !joinedState
+                ? "room_join returned a private welcome but no public match board."
+                : "room_join of the created room did not seat bot as seat 2 with started true.";
+          two = {
+            result: joinedRaw ? "fail" : "unsupported",
+            acceptance: true,
+            roomId,
+            roomIdSource: "room_welcome",
+            creatorSeat: 1,
+            creatorTeam: "red",
+            creatorStarted: false,
+            joinerSeat: joinedRaw && joinedRaw.seat !== undefined ? joinedRaw.seat : null,
+            joinerTeam: joinedRaw && joinedRaw.team !== undefined ? joinedRaw.team : null,
+            joinerStarted: joinedRaw && joinedRaw.started !== undefined ? joinedRaw.started : null,
+            sameRoom: Boolean(joinedRaw && joinedRaw.roomId === roomId),
+            mapSeedSeen,
+            reason: why,
+          };
+        } else if (!mapSeedSeen || (joinedRaw.mapSeed !== undefined && joinedRaw.mapSeed !== mapSeed)) {
+          two = {
+            result: "fail",
+            acceptance: true,
+            roomId,
+            roomIdSource: "room_welcome",
+            creatorSeat: 1,
+            creatorTeam: "red",
+            creatorStarted: false,
+            joinerSeat: 2,
+            joinerTeam: "bot",
+            joinerStarted: true,
+            roomPhase: joinedState ? joinedState.phase : null,
+            sameRoom: true,
+            mapSeedSeen,
+            reason: "The second seat joined, but the match frame did not carry one shared map seed.",
+          };
+        } else {
+          two = {
+            result: "pass",
+            acceptance: true,
+            roomId,
+            roomIdSource: "room_welcome",
+            creatorSeat: 1,
+            creatorTeam: "red",
+            creatorStarted: false,
+            joinerSeat: 2,
+            joinerTeam: "bot",
+            joinerStarted: true,
+            roomPhase: joinedState.phase,
+            sameRoom: true,
+            mapSeedSeen: true,
+            reason:
+              "Seat 2's welcome.started is true because that call filled the room. The public room phase is match. welcome.started is not the room phase.",
+          };
+        }
 
-    const healthAfter = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) });
-    const healthAfterBody = await healthAfter.json();
-    if (healthAfter.status !== 200 || healthAfterBody.ok !== true) {
-      throw new Error("health endpoint failed after the sessions closed and rejoined");
+        if (two.result === "fail" && publicLeak) {
+          resume = { ...unsupportedResume("Resume was not sent after a public token leak."), result: "fail", roomIdSource: "room_welcome" };
+        } else {
+          await closeSocket(creator.ws);
+          const resumer = await openSocket(port, sockets);
+          resumer.messages.length = 0;
+          resumer.ws.send(JSON.stringify({ type: "room_join", roomId, resumeToken: creatorToken }));
+          const restoredRaw = remember(
+            seen,
+            await waitForOptional(resumer, (msg) => msg.type === "room_welcome" || msg.type === "room_error", ROOM_MS)
+          );
+          resumeToken = restoredRaw && restoredRaw.type === "room_welcome" ? takeToken(restoredRaw) : null;
+          const resumeLeak = [restoredRaw, ...resumer.messages].some((msg) => leakedToken(msg, creatorToken) || leakedToken(msg, resumeToken));
+          if (resumeLeak || publicLeak) {
+            resume = {
+              ...unsupportedResume("A public frame carried the private token."),
+              result: "fail",
+              attempted: true,
+              roomIdSource: "room_welcome",
+            };
+          } else if (!restoredRaw) {
+            resume = {
+              ...unsupportedResume(
+                "UNSUPPORTED: the new connection sent room_join with the room id from room_welcome and that seat's token, and the server sent no room_welcome. Legacy join was not used."
+              ),
+              attempted: true,
+              roomIdSource: "room_welcome",
+            };
+          } else if (restoredRaw.type === "room_error") {
+            resume = {
+              result: "fail",
+              acceptance: true,
+              protocol: "room_join-with-private-token",
+              identityRestored: false,
+              attempted: true,
+              sameSocketAsCreator: false,
+              roomIdSource: "room_welcome",
+              restoredSeat: null,
+              restoredTeam: null,
+              restoredStarted: null,
+              tokenMatched: false,
+              mapSeedMatched: null,
+              usedLegacyJoin: false,
+              reason: `The new connection's room_join was rejected (${restoredRaw.error || "room_error"}). The seat was not restored.`,
+            };
+          } else {
+            const tokenMatched = resumeToken !== null && resumeToken === creatorToken;
+            const mapSeedMatched = mapSeedSeen ? restoredRaw.mapSeed === mapSeed : null;
+            const board = remember(
+              seen,
+              await waitForOptional(resumer, (msg) => msg.type === "room_state" && msg.roomId === roomId, ROOM_MS)
+            );
+            const roomPhase = board ? board.phase : null;
+            const clock = await watchPlayingClock(resumer);
+            const identityRestored =
+              restoredRaw.ok === true &&
+              restoredRaw.roomId === roomId &&
+              restoredRaw.seat === 1 &&
+              restoredRaw.team === "red" &&
+              restoredRaw.started === false &&
+              roomPhase === "match" &&
+              tokenMatched &&
+              mapSeedMatched === true;
+            const matchClockAdvanced = clock.advanced === true;
+            let result = "fail";
+            let reason =
+              "room_join on a new connection answered, but seat, team, token, map seed, or room phase did not keep the same match.";
+            if (identityRestored && matchClockAdvanced) {
+              result = "pass";
+              reason =
+                "Resume welcome.started is false because this call did not start a second match. Public room phase stayed match, seat 1 returned, and the playing clock advanced.";
+            } else if (identityRestored && !matchClockAdvanced) {
+              reason =
+                "Seat 1 was restored and room phase stayed match, but no playing snapshot advanced remainingMs within 2000ms.";
+            }
+            resume = {
+              result,
+              acceptance: true,
+              protocol: "room_join-with-private-token",
+              identityRestored,
+              attempted: true,
+              sameSocketAsCreator: false,
+              roomIdSource: "room_welcome",
+              restoredSeat: restoredRaw.seat ?? null,
+              restoredTeam: restoredRaw.team ?? null,
+              restoredStarted: restoredRaw.started ?? null,
+              roomPhase,
+              matchClockAdvanced,
+              sawPlayingSnapshot: clock.sawPlaying,
+              tokenMatched,
+              mapSeedMatched,
+              usedLegacyJoin: false,
+              reason,
+            };
+          }
+        }
+      }
     }
+
+    const queued = sockets.flatMap((ws) => (ws.messages ? ws.messages : []));
+    const frames = [...seen, ...queued];
+    const tokenOnPublic = [creatorToken, joinerToken, resumeToken].some((token) => frames.some((msg) => leakedToken(msg, token)));
+    for (const msg of frames) takeToken(msg);
+
+    const optionalDiagnostics = {
+      legacyJoin: await legacyDiagnostic(port, sockets),
+    };
 
     const report = {
       exitCode: 0,
-      twoSessions: {
-        result: "pass",
-        distinctPlayerIds: true,
-        teams: [welcomeA.team, welcomeB.team],
-        bothVisibleToEachOther: true,
-        pingPong: true,
-        inputAppliedOnSnapshot: true,
-        phase: stateA.phase,
-        playerCountOnHealthBeforeJoin: healthBody.players,
-        playerCountOnHealthAfter: healthAfterBody.players,
+      serverSource: process.env.ISSUE12_SERVER_DIR ? "ISSUE12_SERVER_DIR" : "workspace",
+      tokenOnPublic,
+      required: {
+        twoCommanderSessions: two,
+        sameIdentityReconnect: resume,
       },
-      freshConnection,
-      sameIdentityReconnect,
-      lobbyRouting,
+      optionalDiagnostics,
     };
     report.exitCode = exitCodeFor(report);
     const serialized = JSON.stringify(report);
-    if (serialized.includes(token) || serialized.includes(PROBE_TOKEN_PREFIX)) {
-      throw new Error("probe report contained the private token material");
+    for (const token of [creatorToken, joinerToken, resumeToken]) {
+      if (token && serialized.includes(token)) {
+        throw new Error("probe report contained a private token");
+      }
+    }
+    if (serialized.includes("resumeToken")) {
+      throw new Error("probe report contained a private token field name");
     }
     return report;
   } finally {
+    creatorToken = null;
+    joinerToken = null;
+    resumeToken = null;
     await Promise.all(sockets.map((ws) => closeSocket(ws)));
     await stopChild(server.child);
   }
@@ -444,14 +598,14 @@ function invokedDirectly() {
 }
 
 if (invokedDirectly()) {
+  const heldTokens = [];
   runProbe()
     .then((report) => {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
       process.exit(report.exitCode);
     })
     .catch((error) => {
-      const token = "";
-      process.stderr.write(`${redactText(error && error.stack ? error.stack : error, token)}\n`);
+      process.stderr.write(`${redactText(error && error.stack ? error.stack : error, heldTokens)}\n`);
       process.exit(1);
     });
 }
