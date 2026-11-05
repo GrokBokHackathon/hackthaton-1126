@@ -110,7 +110,20 @@ Cloudflare public hostname: Type **HTTP**, URL **`http://server:8080`** (Compose
 Loopback ports:
 
 - Game server: <http://127.0.0.1:8080/health>
-- Web client: <http://127.0.0.1:3000/>
+- Playable client on that same origin: <http://127.0.0.1:8080/game.html> (also <http://127.0.0.1:8080/>)
+- Web container: <http://127.0.0.1:3000/> (proxies `/ws` and `/health` to `server`)
+
+The public tunnel already targets `http://server:8080`, so the browser entry point is `https://hakaton-11-26.wffe.io/game.html` with gameplay on `wss://hakaton-11-26.wffe.io/ws`. No tunnel change. The existing page reconnects and shows connection status in the status line; a dropped socket joins again as a new player.
+
+Server Ops, on the team host only (do not run this from a cloud agent or a bot):
+
+```bash
+git pull
+docker compose up --build server web
+# Podman: podman compose up --build server web
+curl -fsS http://127.0.0.1:8080/health
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/game.html
+```
 
 Open <http://127.0.0.1:3000/> in two or more browser tabs to play as multiple humans. Use WASD or arrow keys to move.
 

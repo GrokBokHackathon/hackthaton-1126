@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import http from "node:http";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import { WebSocket } from "ws";
@@ -87,6 +88,79 @@ test("health endpoint and websocket game", async () => {
     
     ws.close();
     await once(ws, "close");
+  } finally {
+    child.kill("SIGTERM");
+    await once(child, "exit");
+  }
+});
+
+function httpStatus(port, urlPath) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ hostname: "127.0.0.1", port, path: urlPath }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+  });
+}
+
+test("same-origin client files, health, and two websocket sessions", async () => {
+  const { child, ready } = startServer();
+  try {
+    const port = await ready;
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    const body = await health.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.service, "flag-raid");
+    assert.equal(body.websocket, "/ws");
+    assert.equal(body.client, "/game.html");
+
+    const page = await fetch(`http://127.0.0.1:${port}/game.html`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type") || "", /text\/html/);
+    const html = await page.text();
+    assert.match(html, /game\.js/);
+    assert.match(html, /canvas/);
+
+    const root = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(root.status, 200);
+    assert.match(await root.text(), /game\.js/);
+
+    const script = await fetch(`http://127.0.0.1:${port}/game.js`);
+    assert.equal(script.status, 200);
+    assert.match(await script.text(), /WebSocket/);
+
+    const atlas = await fetch(`http://127.0.0.1:${port}/assets/atlas.json`);
+    assert.equal(atlas.status, 200);
+    const atlasBody = await atlas.json();
+    assert.equal(typeof atlasBody, "object");
+
+    assert.equal(await httpStatus(port, "/../package.json"), 404);
+    assert.equal(await httpStatus(port, "/nope"), 404);
+
+    async function join(name) {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      const incoming = [];
+      ws.on("message", (data) => incoming.push(String(data)));
+      await once(ws, "open");
+      const hello = JSON.parse(await nextMessage(incoming));
+      assert.equal(hello.type, "hello");
+      assert.equal(hello.service, "flag-raid");
+      ws.send(JSON.stringify({ type: "join", name, kind: "human" }));
+      const welcome = JSON.parse(await nextMessage(incoming));
+      assert.equal(welcome.type, "welcome");
+      assert.equal(welcome.team, "red");
+      assert.ok(welcome.playerId);
+      return { ws, incoming, playerId: welcome.playerId };
+    }
+
+    const first = await join("Ada");
+    const second = await join("Bea");
+    assert.notEqual(first.playerId, second.playerId);
+    first.ws.close();
+    second.ws.close();
+    await once(first.ws, "close");
+    await once(second.ws, "close");
   } finally {
     child.kill("SIGTERM");
     await once(child, "exit");

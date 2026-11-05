@@ -1,6 +1,48 @@
+import { createReadStream, existsSync, statSync } from "node:fs";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { Match } from "./game.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const webRoot = [path.join(here, "web"), path.join(here, "..", "web")].find((candidate) =>
+  existsSync(candidate)
+);
+
+const STATIC_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+};
+
+function resolveStatic(urlPath) {
+  if (!webRoot) return null;
+  const rel = urlPath === "/" ? "/game.html" : urlPath;
+  if (rel.includes("\0")) return null;
+  const root = path.resolve(webRoot);
+  const full = path.resolve(root, `.${rel}`);
+  if (full !== root && !full.startsWith(root + path.sep)) return null;
+  const ext = path.extname(full).toLowerCase();
+  if (!STATIC_TYPES[ext]) return null;
+  if (!existsSync(full)) return null;
+  const info = statSync(full);
+  if (!info.isFile()) return null;
+  return { full, type: STATIC_TYPES[ext] };
+}
+
+function serveStatic(res, file) {
+  res.writeHead(200, {
+    "content-type": file.type,
+    "cache-control": "no-store",
+  });
+  createReadStream(file.full).pipe(res);
+}
 
 const port = Number(process.env.PORT || 8080);
 const host = "0.0.0.0";
@@ -45,9 +87,16 @@ const server = http.createServer((req, res) => {
       service: "flag-raid",
       role: "realtime-game-server",
       websocket: "/ws",
+      client: "/game.html",
       players: match.players.size,
       phase: match.phase,
     });
+    return;
+  }
+
+  const file = resolveStatic(url.pathname);
+  if (file) {
+    serveStatic(res, file);
     return;
   }
 
