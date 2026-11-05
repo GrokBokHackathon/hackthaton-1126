@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Flag Raid</title>
+    <link rel="stylesheet" href="./command-panel.css" />
     <style>
       :root {
         color-scheme: light dark;
@@ -49,12 +50,16 @@
         image-rendering: crisp-edges;
         touch-action: none;
       }
-      #container {
+      #command-shell {
         position: absolute;
         top: 72px;
         left: 0;
         right: 0;
         bottom: 0;
+      }
+      #container {
+        position: absolute;
+        inset: 0;
         touch-action: none;
       }
     </style>
@@ -68,8 +73,13 @@
         <div id="frames">Frames: none</div>
       </div>
     </div>
-    <div id="container">
-      <canvas id="canvas"></canvas>
+    <div id="command-shell">
+      <div class="cp-arena-slot">
+        <div id="container">
+          <canvas id="canvas"></canvas>
+        </div>
+      </div>
+      <div id="command-dock" class="cp-dock"></div>
     </div>
     <script type="module">
       import { Game } from "./game.js";
