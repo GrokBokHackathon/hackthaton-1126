@@ -255,7 +255,8 @@ setInterval(() => {
     if (event.type === "newMap") spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
   }
 
-  // HUD reads phase, remainingMs, roundId, winner, and winReason from this snapshot.
+  // Same phases as main after PR39: play, sudden death, and the results hold.
+  // The HUD reads phase, remainingMs, roundId, winner, and winReason from this snapshot.
   if (shouldBroadcastState(match.phase)) {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);

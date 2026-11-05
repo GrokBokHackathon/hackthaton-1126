@@ -19,6 +19,7 @@ import {
   fogLabel,
   forwardCommand,
   mapPingsFromState,
+  orderSelectionForUnit,
   presentationFromUnits,
   unitsFromState,
 } from "./commander/live-hook.js";
@@ -58,7 +59,9 @@ export class Game {
     this.linkState = "idle";
     this.artProof = emptyArtProof();
     this.commandPanel = null;
+    this.orderRoster = null;
     this.sentCommands = [];
+    this.shellLayout = null;
 
     this.spritesLoaded = false;
 
@@ -128,15 +131,23 @@ export class Game {
     }
     if (gesture.gesture === "center-on-unit" && gesture.unitId) {
       this.selectedUnitId = gesture.unitId;
-      this.commandPanel?.setSelection({ unitIds: [gesture.unitId] });
+      this.selectForOrder(gesture.unitId);
     } else if (gesture.gesture === "tap") {
-      this.selectedUnitId = gesture.unitId;
       if (gesture.unitId) {
-        this.commandPanel?.setSelection({ unitIds: [gesture.unitId] });
+        this.selectedUnitId = gesture.unitId;
+        this.selectForOrder(gesture.unitId);
       } else {
+        this.selectedUnitId = null;
         this.offerMapTarget(gesture.x, gesture.y);
       }
     }
+  }
+
+  selectForOrder(unitId) {
+    const selection = orderSelectionForUnit(unitId, this.orderRoster);
+    if (!selection || !this.commandPanel) return false;
+    this.commandPanel.setSelection(selection);
+    return true;
   }
 
   offerMapTarget(screenX, screenY) {
@@ -149,10 +160,26 @@ export class Game {
     this.commandPanel.setTarget(target, meta);
   }
 
+  deliverCommand(message) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(message));
+    return true;
+  }
+
   sendCommand(payload) {
-    const result = forwardCommand(payload, (message) => this.send(message));
-    if (result.sent) this.sentCommands.push(payload);
-    return result;
+    const result = forwardCommand(payload, (message) => this.deliverCommand(message));
+    if (!result.sent) return false;
+    this.sentCommands.push(payload);
+    return true;
+  }
+
+  bindCommandShell(shell) {
+    if (this.shellLayout || !shell) return;
+    const apply = () => applyCommandPanelShell(shell, "auto");
+    this.shellLayout = apply;
+    apply();
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
   }
 
   mountCommandPanel() {
@@ -160,7 +187,7 @@ export class Game {
     const shell = document.getElementById("command-shell");
     const dock = document.getElementById("command-dock");
     if (!shell || !dock) return;
-    applyCommandPanelShell(shell, "auto");
+    this.bindCommandShell(shell);
     this.commandPanel = mountCommandPanel(dock, {
       onCommand: (payload) => this.sendCommand(payload),
       layout: "auto",
@@ -213,6 +240,7 @@ export class Game {
     this.ws.addEventListener("close", () => {
       this.linkState = "closed";
       this.noteFrame("close");
+      this.commandPanel?.cancelPendingTransport?.();
       if (this.stopped) return;
       this.reconnectAttempt++;
       const wait = Math.min(5000, 500 * this.reconnectAttempt);
@@ -245,6 +273,7 @@ export class Game {
     } else if (msg.type === "command_view" || msg.type === "command_ack" || msg.type === "command_rejected") {
       const patch = panelPatchFromCommandMessage(msg);
       this.lastCommandPatch = patch;
+      if (patch && Array.isArray(patch.units)) this.orderRoster = patch.units;
       if (patch?.commandResult) this.lastCommandResult = patch.commandResult;
       if (patch) this.commandPanel?.update(patch);
     } else if (msg.type === "scored") {
@@ -472,6 +501,11 @@ export class Game {
     this.unmountCamera = null;
     this.commandPanel?.destroy?.();
     this.commandPanel = null;
+    if (this.shellLayout) {
+      window.removeEventListener("resize", this.shellLayout);
+      window.removeEventListener("orientationchange", this.shellLayout);
+      this.shellLayout = null;
+    }
     if (this.ws) this.ws.close();
   }
 }

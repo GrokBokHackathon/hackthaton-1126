@@ -404,11 +404,16 @@ export function createCommandSession({ onCommand } = {}) {
       setNotice("assertive", "Command could not be built.");
       return built;
     }
+    let delivery;
     try {
-      onCommand(built.payload);
+      delivery = onCommand(built.payload);
     } catch {
       setNotice("assertive", "Command was not delivered.");
-      return { ok: false, error: "handler_threw" };
+      return { ok: false, error: "handler_threw", local: true };
+    }
+    if (delivery === false || (delivery && delivery.sent === false)) {
+      setNotice("assertive", "Command was not delivered.");
+      return { ok: false, error: "transport_failed", local: true };
     }
     lastPayload = built.payload;
     pendingSeq = seq;
@@ -554,6 +559,23 @@ export function createCommandSession({ onCommand } = {}) {
       return { ok: true };
     },
     getViewModel,
+    cancelPendingTransport() {
+      if (destroyed) return dead();
+      const wasPending = step === "pending" || pendingSeq != null;
+      pendingSeq = null;
+      commandStatus = {
+        phase: "local_cancelled",
+        seq: null,
+        reason: null,
+        text: "Command was not sent. The connection closed.",
+      };
+      if (wasPending) {
+        step = orderId ? "target" : selection.kind === "none" ? "select" : "order";
+        cursor = orderId ? "target" : "default";
+        setNotice("assertive", "Command was not sent. The connection closed.");
+      }
+      return { ok: true, cancelled: wasPending, local: true };
+    },
   };
 }
 
@@ -790,6 +812,11 @@ export function mountCommandPanel(container, options = {}) {
     },
     getLayout() {
       return layoutMode;
+    },
+    cancelPendingTransport() {
+      const result = session.cancelPendingTransport();
+      render();
+      return result;
     },
     root,
   };
