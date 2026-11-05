@@ -136,6 +136,7 @@ test("same-origin client files, health, and two websocket sessions", async () =>
     assert.equal(typeof atlasBody, "object");
 
     assert.equal(await httpStatus(port, "/../package.json"), 404);
+    assert.equal(await httpStatus(port, "/package.json"), 404);
     assert.equal(await httpStatus(port, "/nope"), 404);
 
     async function join(name) {

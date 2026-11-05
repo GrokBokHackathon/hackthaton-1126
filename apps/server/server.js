@@ -23,6 +23,41 @@ const STATIC_TYPES = {
   ".webp": "image/webp",
 };
 
+// Public files the browser actually loads. apps/web/package.json stays on disk
+// for local ESM/tooling; nothing in the client imports it over HTTP.
+const STATIC_ALLOW_EXACT = new Set([
+  "/game.html",
+  "/game.js",
+  "/index.html",
+  "/assets.js",
+  "/atlas.js",
+  "/fog.js",
+  "/spriteLoader.js",
+  "/command-panel.css",
+  "/command-panel.js",
+  "/lobby.html",
+  "/lobby.js",
+  "/lobby.css",
+]);
+
+function isAllowedStatic(rel) {
+  if (STATIC_ALLOW_EXACT.has(rel)) return true;
+  if (rel.startsWith("/commander/") && rel.endsWith(".js")) return true;
+  if (!rel.startsWith("/assets/")) return false;
+  const base = path.posix.basename(rel);
+  if (base === "package.json" || base === "package-lock.json") return false;
+  return Boolean(STATIC_TYPES[path.posix.extname(base).toLowerCase()]);
+}
+
+function shouldBroadcastState(phase) {
+  return (
+    phase === "waiting" ||
+    phase === "playing" ||
+    phase === "sudden_death" ||
+    phase === "results"
+  );
+}
+
 function resolveStatic(urlPath) {
   if (!webRoot) return null;
   const rel = urlPath === "/" ? "/game.html" : urlPath;
@@ -32,6 +67,7 @@ function resolveStatic(urlPath) {
   if (full !== root && !full.startsWith(root + path.sep)) return null;
   const ext = path.extname(full).toLowerCase();
   if (!STATIC_TYPES[ext]) return null;
+  if (!isAllowedStatic(rel)) return null;
   if (!existsSync(full)) return null;
   const info = statSync(full);
   if (!info.isFile()) return null;
@@ -219,8 +255,8 @@ setInterval(() => {
     if (event.type === "newMap") spawnSquad(match, Number.isFinite(botsPerTeam) ? botsPerTeam : 3);
   }
 
-  // Broadcast state
-  if (match.phase === "playing" || match.phase === "waiting") {
+  // HUD reads phase, remainingMs, roundId, winner, and winReason from this snapshot.
+  if (shouldBroadcastState(match.phase)) {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);
       if (!player || ws.readyState !== ws.OPEN) continue;
