@@ -1,0 +1,87 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #12141c;
+  color: #f4f4f8;
+}
+
+main {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.5rem;
+}
+
+p {
+  line-height: 1.4;
+}
+
+form,
+#lobby-board {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.95rem;
+}
+
+input,
+button,
+a.button {
+  font: inherit;
+  border-radius: 0.4rem;
+  padding: 0.65rem 0.8rem;
+}
+
+input {
+  border: 1px solid #3c4154;
+  background: #1c2030;
+  color: inherit;
+}
+
+button,
+a.button {
+  border: 0;
+  background: #c42032;
+  color: white;
+  text-align: center;
+  text-decoration: none;
+}
+
+button.secondary {
+  background: #3c4154;
+}
+
+#lobby-seats {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+#lobby-seats li {
+  padding: 0.75rem;
+  border-radius: 0.4rem;
+  background: #1c2030;
+}
+
+#lobby-error {
+  color: #ffb4b4;
+}
+
+#lobby-status {
+  min-height: 1.2rem;
+  color: #c8c8d4;
+}

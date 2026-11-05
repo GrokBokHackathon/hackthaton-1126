@@ -6,7 +6,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 const webRoot = path.resolve(import.meta.dirname, "../web");
-const modules = ["game.js", "assets.js", "atlas.js"];
+const modules = ["game.js", "assets.js", "atlas.js", "lobby.js"];
 
 function checkModule(filePath) {
   return spawnSync(process.execPath, ["--input-type=module", "--check"], {

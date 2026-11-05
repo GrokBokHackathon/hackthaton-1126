@@ -53,12 +53,16 @@ The client works on phone and desktop with responsive zoom:
 | Doc | Purpose |
 | --- | --- |
 | [README.md](README.md) | Status, vision, run pointers |
-| [docs/PROTOCOL.md](docs/PROTOCOL.md) | WebSocket JSON game protocol (join, input, state, scored, matchEnd, newMap) |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | WebSocket JSON game protocol (join, input, state, scored, matchEnd, newMap, lobby contract) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
 | [docs/STATUS.md](docs/STATUS.md) | Current implementation status and roadmap |
 | [docs/ART_INTEGRATION.md](docs/ART_INTEGRATION.md) | Atlas rendering system, sprite specs, graceful fallback |
 | [docs/art/README.md](docs/art/README.md) | Art pack: sprites, atlas, naming, blocking rules, regeneration |
 | [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative patron-and-heroes proposal (discussion only, not implemented) |
+
+## Lobby
+
+Two commanders can create a short room id and share `/lobby.html?room=CODE`. Seat 1 is red and seat 2 is bot. The match auto-starts when both seats are filled. A full room returns `room_full`. A bad id returns `invalid_room`. Messages are `room_create`, `room_join`, `room_state`, and `room_error`, plus a private `room_welcome` that is the only carrier of the resume token. See [docs/PROTOCOL.md](docs/PROTOCOL.md). `apps/server/lobby.js` and `apps/web/lobby.html` are not wired into the live server; `apps/server/LOBBY_INTEGRATION.md` is the adapter note.
 
 ## Verified deployment
 

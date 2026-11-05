@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flag Raid lobby</title>
+    <link rel="stylesheet" href="./lobby.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Flag Raid lobby</h1>
+      <p>Two commanders. Seat 1 is red. Seat 2 is bot. The match starts when both seats are filled.</p>
+      <form id="create-form">
+        <button type="submit">Create room</button>
+      </form>
+      <form id="join-form">
+        <label>Room id <input id="join-room" name="room" maxlength="4" autocapitalize="characters" /></label>
+        <button type="submit" class="secondary">Join room</button>
+      </form>
+      <p id="lobby-status"></p>
+      <div id="lobby-board"></div>
+      <p><button id="leave" type="button" class="secondary" hidden>Leave lobby</button></p>
+    </main>
+    <script type="module">
+      import { createLobbyClient, renderLobby } from "./lobby.js";
+
+      const board = document.querySelector("#lobby-board");
+      const status = document.querySelector("#lobby-status");
+      const leave = document.querySelector("#leave");
+      const params = new URLSearchParams(location.search);
+      const client = createLobbyClient({
+        origin: location.origin,
+        send(message) {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(message));
+          }
+        },
+      });
+
+      let socket = null;
+
+      function paint() {
+        const view = client.view();
+        board.innerHTML = renderLobby(view);
+        leave.hidden = view.mode !== "lobby";
+        if (view.mode === "match" && view.handoffUrl && !view.handoffUrl.includes("resumeToken")) {
+          status.textContent = "Match started. Opening the game…";
+          location.assign(view.handoffUrl);
+        }
+      }
+
+      document.querySelector("#create-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        client.create();
+      });
+      document.querySelector("#join-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        client.join(document.querySelector("#join-room").value || params.get("room") || "");
+      });
+      leave.addEventListener("click", () => {
+        client.clear(sessionStorage);
+        socket?.close();
+      });
+
+      const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(`${scheme}//${location.host}/ws`);
+      socket.addEventListener("open", () => {
+        status.textContent = "Connected. The live server does not route lobby messages until the core adapter lands.";
+        const saved = client.load(sessionStorage);
+        const room = params.get("room");
+        if (saved && (!room || saved.roomId === room.trim().toUpperCase())) {
+          client.join(saved.roomId, saved.resumeToken);
+        } else if (room) {
+          document.querySelector("#join-room").value = room;
+        }
+      });
+      socket.addEventListener("message", (event) => {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        client.receive(message, sessionStorage);
+        paint();
+      });
+      socket.addEventListener("close", () => {
+        status.textContent = "Disconnected.";
+      });
+      paint();
+    </script>
+  </body>
+</html>
