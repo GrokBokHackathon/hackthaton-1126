@@ -153,6 +153,7 @@ const OBSERVE = `(() => {
     bot: bot && { x: bot.x, y: bot.y },
     frames: game.frameCounts,
     status: document.getElementById("status")?.textContent,
+    roundText: document.getElementById("round")?.textContent ?? null,
     panel: Boolean(document.querySelector("#command-dock .cp-root")),
     stylesheet: Boolean(document.querySelector('link[href="./command-panel.css"], link[href$="command-panel.css"]')),
   };
@@ -235,6 +236,7 @@ try {
       && moved
       && observed.panel
       && observed.stylesheet
+      && observed.roundText === ""
     ),
   };
   console.log(JSON.stringify(report, null, 2));
