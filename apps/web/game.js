@@ -1,8 +1,8 @@
 import { CONFIG, drawBase, drawFlag, drawPlayer, drawTile } from "./assets.js";
 import {
   boundsFromMap,
+  cameraForViewport,
   cameraTransform,
-  createCameraState,
   mountCameraInput,
   paintUnitOverlay,
   renderUnitOverlay,
@@ -111,18 +111,14 @@ export class Game {
   syncCamera(width, height) {
     if (!this.map) return;
     this.bounds = boundsFromMap(this.map, CONFIG.tileSize);
-    if (!this.camera) {
-      this.camera = createCameraState({
-        viewportWidth: width,
-        viewportHeight: height,
-        bounds: this.bounds,
-      });
-    } else {
-      this.camera = updateCamera(this.camera, {
-        viewportWidth: width,
-        viewportHeight: height,
-      }, 0, this.bounds);
-    }
+    this.camera = cameraForViewport(this.camera, {
+      width,
+      height,
+      bounds: this.bounds,
+      map: this.map,
+      team: this.team,
+      tileSize: CONFIG.tileSize,
+    });
   }
 
   onCameraGesture(gesture) {
