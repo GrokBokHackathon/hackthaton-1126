@@ -31,7 +31,17 @@ export class SpriteLoader {
         const imagePaths = new Set();
         for (const group of Object.values(this.atlas)) {
           if (group.meta && group.meta.image) {
-            imagePaths.add(group.meta.image);
+            const imagePath = group.meta.image;
+            // Handle team-templated images (e.g., "char_{team}_sheet_placeholder.png")
+            if (imagePath.includes("{team}")) {
+              // Load all team variants
+              const teams = ["red", "bot", "mask"];
+              for (const team of teams) {
+                imagePaths.add(imagePath.replace("{team}", team));
+              }
+            } else {
+              imagePaths.add(imagePath);
+            }
           }
         }
 

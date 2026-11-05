@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 const SERVER_PORT = 3000;
 const SERVER_URL = `http://localhost:${SERVER_PORT}`;
 const GAME_URL = `${SERVER_URL}/game.html`;
-const SCREENSHOT_PATH = "/opt/cursor/artifacts/game-sprites-screenshot.png";
+const SCREENSHOT_PATH = "/opt/cursor/artifacts/game-sprites-with-characters.png";
 
 async function startServer() {
   return new Promise((resolve, reject) => {
@@ -44,6 +44,14 @@ async function captureScreenshot() {
       viewport: { width: 1280, height: 720 },
     });
     const page = await context.newPage();
+    
+    // Capture console warnings to detect sprite fallbacks
+    const consoleWarnings = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "warning" && msg.text().includes("sprite")) {
+        consoleWarnings.push(msg.text());
+      }
+    });
 
     console.log(`Navigating to ${GAME_URL}...`);
     await page.goto(GAME_URL, { waitUntil: "networkidle", timeout: 10000 });
@@ -57,14 +65,81 @@ async function captureScreenshot() {
       return window.spritesLoaded || false;
     });
 
-    if (spritesLoaded) {
-      console.log("✓ Sprites loaded successfully");
-    } else {
-      console.warn("⚠ Could not verify sprite loading, continuing anyway...");
+    if (!spritesLoaded) {
+      throw new Error("Sprites failed to load - spriteLoader.load() returned false");
+    }
+    console.log("✓ Sprites loaded successfully");
+
+    // Wait for game to have players
+    console.log("Waiting for players to appear in game...");
+    let attempts = 0;
+    let gameState;
+    while (attempts < 20) {
+      gameState = await page.evaluate(() => {
+        // Access the game instance through the module
+        const game = window.game || (window.Game && new window.Game());
+        if (!game) return null;
+        
+        return {
+          hasPlayers: game.state && game.state.players && game.state.players.length > 0,
+          playerCount: game.state?.players?.length || 0,
+          hasMap: !!game.map,
+          spritesLoaded: window.spritesLoaded,
+        };
+      });
+      
+      if (gameState && gameState.hasPlayers && gameState.playerCount >= 2) {
+        console.log(`✓ Game has ${gameState.playerCount} players`);
+        break;
+      }
+      
+      await page.waitForTimeout(500);
+      attempts++;
     }
 
-    // Wait for a game state with players
-    await page.waitForTimeout(3000);
+    if (!gameState || !gameState.hasPlayers) {
+      console.warn("⚠ Game may not have players yet, taking screenshot anyway...");
+    }
+
+    // Additional wait to ensure rendering is complete
+    await page.waitForTimeout(2000);
+
+    // Verify that the canvas has rendered content
+    const renderCheck = await page.evaluate(() => {
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // Count pixels with different characteristics
+      let nonZeroPixels = 0;
+      let coloredPixels = 0;
+      
+      for (let i = 0; i < imageData.data.length; i += 4) {
+        const r = imageData.data[i];
+        const g = imageData.data[i + 1];
+        const b = imageData.data[i + 2];
+        const a = imageData.data[i + 3];
+        
+        if (a > 0) {
+          nonZeroPixels++;
+          if (r > 30 || g > 30 || b > 30) {
+            coloredPixels++;
+          }
+        }
+      }
+      
+      return {
+        hasContent: nonZeroPixels > 5000,
+        coloredPixels,
+        canvasSize: `${canvas.width}x${canvas.height}`,
+      };
+    });
+
+    if (!renderCheck.hasContent) {
+      throw new Error("Canvas appears empty or not rendering properly");
+    }
+    
+    console.log(`✓ Canvas rendered with ${renderCheck.coloredPixels} colored pixels (${renderCheck.canvasSize})`);
 
     // Ensure artifacts directory exists
     await mkdir("/opt/cursor/artifacts", { recursive: true });
@@ -72,7 +147,14 @@ async function captureScreenshot() {
     console.log(`Taking screenshot to ${SCREENSHOT_PATH}...`);
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: false });
 
-    console.log("✓ Screenshot saved successfully");
+    // Check for sprite fallback warnings
+    if (consoleWarnings.length > 0) {
+      console.error("✗ Sprite fallback warnings detected:");
+      consoleWarnings.forEach((warning) => console.error(`  ${warning}`));
+      throw new Error("Characters or flags fell back to emoji/shape rendering");
+    }
+
+    console.log("✓ Screenshot saved successfully (no sprite fallback warnings)");
 
     await browser.close();
   } finally {

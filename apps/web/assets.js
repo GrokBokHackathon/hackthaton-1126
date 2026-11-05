@@ -164,7 +164,12 @@ export function drawPlayer(ctx, player, time, isOwn = false) {
   const spriteKey = getCharSpriteKey(player.dir, player.state, player.hasFlag, time);
   const drawn = spriteLoader.drawAt(ctx, spriteKey, x, y, 1, player.team);
 
-  if (!drawn) {
+  if (!drawn && player.state !== "respawn") {
+    // Log sprite miss for debugging (exclude respawn which shows effect instead)
+    if (typeof window !== "undefined" && !window._spriteMissLogged) {
+      console.warn(`Character sprite not drawn: key="${spriteKey}", team="${player.team}"`);
+      window._spriteMissLogged = true;
+    }
     // Fallback to emoji
     const emoji = TEAM_EMOJI[player.team] || "🤖";
     const color = TEAM_COLORS[player.team] || "#fff";
