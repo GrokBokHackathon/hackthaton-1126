@@ -172,12 +172,17 @@ test("match - movement and collision", () => {
   const match = new Match();
   const p1 = match.addPlayer("p1", "Alice", "human");
   
+  // Place player in a known open area (center of map)
+  p1.x = match.map.width / 2;
+  p1.y = match.map.height / 2;
+  
   const startX = p1.x;
   const startY = p1.y;
   
   match.setInput("p1", 1, 0);
   match.tick(0.1);
   
-  // Should move
-  assert.ok(p1.x > startX || p1.y !== startY);
+  // Should move (at least one coordinate should change)
+  assert.ok(p1.x > startX || p1.y !== startY, 
+    `Player did not move from (${startX}, ${startY}) to (${p1.x}, ${p1.y})`);
 });
