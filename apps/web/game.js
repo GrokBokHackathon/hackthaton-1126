@@ -24,6 +24,19 @@ import {
   unitsFromState,
 } from "./commander/live-hook.js";
 import { applyDebugOverlay, debugOverlayEnabled } from "./commander/debug-overlay.js";
+import {
+  authoritativeSeat,
+  clearRoomSession,
+  loadRoomSession,
+  openingMap,
+  publicRoomBoard,
+  roomErrorClearsSession,
+  roomErrorHoldsSocket,
+  roomErrorText,
+  roomJoinMessage,
+  roomQuery,
+  saveRoomSession,
+} from "./commander/room-session.js";
 import { drawFog } from "./fog.js";
 import { roundHudFromState } from "./commander/round-hud.js";
 import {
@@ -37,7 +50,7 @@ import {
 import { spriteLoader } from "./spriteLoader.js";
 
 export class Game {
-  constructor(canvasId, serverOrigin) {
+  constructor(canvasId, serverOrigin, options = {}) {
     this.canvas = document.getElementById(canvasId);
     this.ctx = this.canvas.getContext("2d");
 
@@ -45,6 +58,17 @@ export class Game {
     this.ws = null;
     this.reconnectAttempt = 0;
     this.stopped = false;
+
+    const search = options.search ?? (typeof location !== "undefined" ? location.search : "");
+    this.room = roomQuery(search);
+    this.roomMode = Boolean(this.room);
+    this.roomStorage = options.storage ?? (typeof sessionStorage !== "undefined" ? sessionStorage : null);
+    this.roomSeat = null;
+    this.roomId = this.room ? this.room.roomId : null;
+    this.mapSeed = null;
+    this.roomBoard = null;
+    this.roomHold = false;
+    this.outboundTypes = [];
 
     this.playerId = null;
     this.team = null;
@@ -217,6 +241,13 @@ export class Game {
       this.linkState = "open";
       this.noteFrame("open");
       this.updateStatus("Connected");
+      if (this.roomMode) {
+        const saved = loadRoomSession(this.roomStorage, this.room.roomId);
+        const message = roomJoinMessage(this.room.roomId, saved);
+        if (message) this.send(message);
+        this.updateStatus("Joining room");
+        return;
+      }
       this.send({
         type: "join",
         name: "Player" + Math.floor(Math.random() * 1000),
@@ -238,7 +269,7 @@ export class Game {
       this.linkState = "closed";
       this.noteFrame("close");
       this.commandPanel?.cancelPendingTransport?.();
-      if (this.stopped) return;
+      if (this.stopped || this.roomHold) return;
       this.reconnectAttempt++;
       const wait = Math.min(5000, 500 * this.reconnectAttempt);
       this.updateStatus(`Disconnected. Reconnecting in ${wait}ms`);
@@ -255,7 +286,19 @@ export class Game {
   handleMessage(msg) {
     if (msg.type === "hello") {
       // Server ready
+    } else if (msg.type === "room_welcome") {
+      this.admitRoom(msg);
+    } else if (msg.type === "room_state") {
+      const board = publicRoomBoard(msg);
+      if (!board) return;
+      this.roomBoard = board;
+      if (board.mapSeed != null) this.mapSeed = board.mapSeed;
+    } else if (msg.type === "room_error") {
+      this.holdRoom(msg.error);
+    } else if (msg.type === "join_rejected" && msg.reason === "already_seated") {
+      this.holdRoom("already_seated");
     } else if (msg.type === "welcome") {
+      if (this.roomMode) return;
       this.playerId = msg.playerId;
       this.team = msg.team;
       this.map = msg.map;
@@ -267,6 +310,7 @@ export class Game {
       this.phase = msg.phase;
       this.updateScore();
       this.publishRound(roundHudFromState(msg));
+      if (this.roomMode) this.ensureRoomMap(msg);
     } else if (msg.type === "command_view" || msg.type === "command_ack" || msg.type === "command_rejected") {
       const patch = panelPatchFromCommandMessage(msg);
       this.lastCommandPatch = patch;
@@ -312,8 +356,38 @@ export class Game {
     if (el) el.textContent = fogLabel(description);
   }
 
+  admitRoom(message) {
+    if (!this.roomMode) return;
+    const seat = authoritativeSeat(message);
+    if (!seat) return;
+    this.team = seat.team;
+    this.roomSeat = seat.seat;
+    this.roomId = seat.roomId;
+    if (seat.mapSeed != null) this.mapSeed = seat.mapSeed;
+    saveRoomSession(this.roomStorage, message);
+    this.roomHold = false;
+    this.updateStatus(`Commander seat ${seat.seat} · ${seat.team}`);
+    if (this.state) this.ensureRoomMap(this.state);
+  }
+
+  holdRoom(error) {
+    this.updateStatus(roomErrorText(error));
+    if (roomErrorClearsSession(error)) clearRoomSession(this.roomStorage);
+    if (roomErrorHoldsSocket(error)) this.roomHold = true;
+  }
+
+  ensureRoomMap(snapshot) {
+    if (!this.roomMode || !this.team || (this.map && Array.isArray(this.map.tiles))) return;
+    if (this.map) return;
+    const shell = openingMap({ ...snapshot, mapSeed: snapshot.mapSeed ?? this.mapSeed }, this.team);
+    if (!shell) return;
+    this.map = shell;
+    this.setupCanvas();
+  }
+
   send(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (msg && msg.type) this.outboundTypes.push(msg.type);
       this.ws.send(JSON.stringify(msg));
     }
   }
@@ -390,6 +464,16 @@ export class Game {
 
   drawTerrain(ctx, proof) {
     const tiles = this.map.tiles;
+    if (!Array.isArray(tiles)) {
+      proof.tilesPending = true;
+      for (let y = 0; y < this.map.height; y++) {
+        for (let x = 0; x < this.map.width; x++) {
+          proof.fallbackTiles += 1;
+          drawTile(ctx, 0, x * CONFIG.tileSize, y * CONFIG.tileSize);
+        }
+      }
+      return;
+    }
     for (let y = 0; y < this.map.height; y++) {
       for (let x = 0; x < this.map.width; x++) {
         const tile = tiles[y][x];
