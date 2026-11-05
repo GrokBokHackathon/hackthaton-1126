@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { spawnSquad } from "./autopilot.js";
-import { Match } from "./game.js";
+import { applyCommand, commandView, visionFor } from "./commands.js";
+import { CONFIG, Match } from "./game.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = [path.join(here, "web"), path.join(here, "..", "web")].find((candidate) =>
@@ -178,6 +179,14 @@ wss.on("connection", (ws) => {
       const dx = Number(msg.dx) || 0;
       const dy = Number(msg.dy) || 0;
       match.setInput(playerId, dx, dy);
+    } else if (msg.type === "command" && playerId) {
+      const player = match.players.get(playerId);
+      if (!player || player.kind !== "human") {
+        ws.send(JSON.stringify({ type: "command_rejected", seq: msg.seq ?? null, reason: "invalid_command" }));
+        return;
+      }
+      const vision = visionFor(match, player.team, CONFIG.visionRadius, CONFIG.visionBlockers);
+      ws.send(JSON.stringify(applyCommand(match, player.team, msg, vision)));
     } else if (msg.type === "ping") {
       ws.send(JSON.stringify({ type: "pong" }));
     }
@@ -216,6 +225,9 @@ setInterval(() => {
       const player = match.players.get(id);
       if (!player || ws.readyState !== ws.OPEN) continue;
       ws.send(JSON.stringify(match.clientStateFor(player.team)));
+      if (player.kind === "human") {
+        ws.send(JSON.stringify({ type: "command_view", ...commandView(match, player.team) }));
+      }
     }
   }
 }, TICK_MS);
