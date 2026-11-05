@@ -105,6 +105,19 @@ test("a rejected token is cleared and the next join has no token", () => {
   assert.deepEqual(message, { type: "room_join", roomId: "AB2K" });
 });
 
+test("a room without tiles is not painted as an all-floor map", () => {
+  const game = fs.readFileSync(new URL("../game.js", import.meta.url), "utf8");
+  const terrain = game.slice(game.indexOf("drawTerrain(ctx, proof) {"), game.indexOf("drawBases(ctx, proof) {"));
+  assert.match(terrain, /tilesPending = true/);
+  assert.equal(terrain.includes("drawTile(ctx, 0"), false);
+  const map = openingMap({
+    mapSeed: 9,
+    fog: { width: 64, height: 40 },
+    players: [{ id: "auto-red-0", team: "red", kind: "bot", x: 2, y: 2 }],
+  }, "red");
+  assert.equal(map.tiles, null);
+});
+
 test("opening map frames own units and does not invent tiles", () => {
   const map = openingMap({
     mapSeed: 9,

@@ -466,12 +466,6 @@ export class Game {
     const tiles = this.map.tiles;
     if (!Array.isArray(tiles)) {
       proof.tilesPending = true;
-      for (let y = 0; y < this.map.height; y++) {
-        for (let x = 0; x < this.map.width; x++) {
-          proof.fallbackTiles += 1;
-          drawTile(ctx, 0, x * CONFIG.tileSize, y * CONFIG.tileSize);
-        }
-      }
       return;
     }
     for (let y = 0; y < this.map.height; y++) {
