@@ -1,6 +1,7 @@
 // Core game logic: map generation, match loop, rules
 import { randomBytes } from "node:crypto";
 import { steerSquad } from "./autopilot.js";
+import { beerActive, grantCaptureLoss, resetEconomy, speedScale, tickEconomy } from "./commands.js";
 import { clientSnapshot, resetFog } from "./fog.js";
 
 // Configuration
@@ -198,6 +199,7 @@ export class Match {
     this.endTime = null;
     this.newMapGenerated = true; // Flag for server to send newMap message
     resetFog(this);
+    resetEconomy(this);
   }
 
   clientStateFor(team) {
@@ -306,6 +308,7 @@ export class Match {
 
     this.tickCount++;
     const events = [];
+    tickEconomy(this, dt);
     steerSquad(this, CONFIG.flagPickupRadius);
 
     // Update players
@@ -337,7 +340,7 @@ export class Match {
         const ndy = player.dy / len;
         player.dir = directionName(ndx, ndy);
 
-        const speed = CONFIG.playerSpeed * dt;
+        const speed = CONFIG.playerSpeed * dt * speedScale(this, player.team);
         const newX = player.x + ndx * speed;
         const newY = player.y + ndy * speed;
 
@@ -373,6 +376,7 @@ export class Match {
         if (distance(player, base) < CONFIG.flagPickupRadius) {
           // Score!
           this.score[player.team]++;
+          grantCaptureLoss(this, enemyTeam);
           events.push({
             type: "scored",
             team: player.team,
@@ -417,6 +421,7 @@ export class Match {
             other.id !== player.id &&
             other.team !== player.team &&
             other.hasFlag &&
+            !beerActive(this, other.team) &&
             distance(player, other) < CONFIG.tagRadius
           ) {
             // Tagged!

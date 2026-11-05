@@ -1,0 +1,441 @@
+/* Isolated command panel. Prefix: cp-
+   Phone: bottom dock, arena about 63% height, panel at least 300px.
+   Desktop: right dock, 360px. Those two pixel values are presentation
+   choices; issue 9 specifies the dock side and the 300px phone minimum. */
+
+.cp-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cp-shell--phone {
+  flex-direction: column;
+}
+
+.cp-shell--phone > .cp-arena-slot {
+  flex: 1 1 63%;
+  min-height: 0;
+}
+
+.cp-shell--phone > .cp-dock {
+  flex: 0 0 37%;
+  height: 37%;
+  min-height: 300px;
+  max-height: 100%;
+}
+
+.cp-shell--desktop {
+  flex-direction: row;
+}
+
+.cp-shell--desktop > .cp-arena-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.cp-shell--desktop > .cp-dock {
+  flex: 0 0 360px;
+  width: 360px;
+  height: 100%;
+  min-height: 0;
+}
+
+.cp-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.cp-mount {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cp-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #141821;
+  color: #f4f1ea;
+  border: 1px solid #3a4458;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.cp-root[data-layout="phone"] {
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.cp-root[data-layout="desktop"] {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.cp-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.cp-root[data-layout="phone"] .cp-body {
+  gap: 4px;
+  padding: 6px 8px 8px;
+}
+
+.cp-emote {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  z-index: 3;
+  transform: translate(-50%, -115%);
+  margin: 0;
+  padding: 8px 12px;
+  border: 2px dashed #ffb4a8;
+  background: #3a1820;
+  color: #ffd7d1;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.cp-mount[data-layout="desktop"] .cp-emote {
+  top: 8px;
+  transform: translate(-50%, 0);
+}
+
+.cp-mount[data-emote="on"][data-layout="desktop"] .cp-body {
+  padding-top: 46px;
+}
+
+.cp-emote[hidden] {
+  display: none;
+}
+
+.cp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cp-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.cp-rules {
+  margin: 0;
+  color: #c5d0dc;
+  font-size: 0.82rem;
+}
+
+.cp-rules[data-rules="unknown"] {
+  color: #ffd38a;
+}
+
+.cp-readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.cp-budget,
+.cp-order-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cp-budget[data-status="unknown"] .cp-budget-value,
+.cp-order-count[data-status="unknown"] .cp-order-count-value {
+  color: #ffd38a;
+}
+
+.cp-frame,
+.cp-order {
+  border: 1px dashed #8ea0b5;
+}
+
+.cp-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+}
+
+.cp-pips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 9rem;
+}
+
+.cp-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid #d7deE8;
+}
+
+.cp-pip--full {
+  background: #f0c14a;
+}
+
+.cp-pip--empty {
+  background: transparent;
+}
+
+.cp-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-steps li {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 4px 0;
+  border-radius: 999px;
+  background: #222838;
+  color: #b7c3d1;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cp-steps li[aria-current="step"] {
+  background: #f0c14a;
+  color: #1b1404;
+  font-weight: 700;
+}
+
+.cp-units {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cp-root[data-layout="phone"] .cp-units {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.cp-units-unknown {
+  margin: 0;
+  color: #ffd38a;
+  font-size: 0.85rem;
+}
+
+.cp-unit,
+.cp-text-button,
+.cp-order {
+  font: inherit;
+  color: inherit;
+  background: #222838;
+}
+
+.cp-unit,
+.cp-text-button {
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid #5d6b80;
+  border-radius: 8px;
+}
+
+.cp-unit[aria-pressed="true"] {
+  background: #f0c14a;
+  color: #1b1404;
+  border-color: #f0c14a;
+}
+
+.cp-unit[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cp-text-button {
+  background: transparent;
+}
+
+.cp-order-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.cp-root[data-layout="phone"] .cp-order-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cp-root[data-layout="desktop"] .cp-order-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cp-order {
+  position: relative;
+  overflow: hidden;
+  min-height: 64px;
+  padding: 8px 8px 6px;
+  border-radius: 10px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.cp-root[data-layout="phone"] .cp-order {
+  min-height: 52px;
+  padding: 4px 6px;
+}
+
+.cp-order[aria-pressed="true"] {
+  outline: 2px solid #f0c14a;
+}
+
+.cp-order[aria-disabled="true"] {
+  opacity: 0.72;
+  cursor: not-allowed;
+  background: #1b212d;
+}
+
+.cp-order[data-disabled-frame="btn_disabled"] {
+  border-style: dashed;
+  border-color: #6d7888;
+}
+
+.cp-order-sweep {
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    rgba(8, 10, 16, 0.72) calc(var(--cp-sweep) * 1turn),
+    transparent 0
+  );
+  pointer-events: none;
+}
+
+.cp-order-label {
+  font-weight: 700;
+  position: relative;
+}
+
+.cp-order-cost,
+.cp-cooldown,
+.cp-order-reason {
+  position: relative;
+  font-size: 0.78rem;
+  color: #d5deE8;
+}
+
+.cp-order-reason {
+  color: #ffd0c8;
+}
+
+.cp-target,
+.cp-pending,
+.cp-status,
+.cp-art-note {
+  margin: 0;
+}
+
+.cp-target[data-cursor="invalid"] {
+  color: #ffb4a8;
+  font-weight: 700;
+}
+
+.cp-pending {
+  color: #b7dcff;
+  font-weight: 700;
+}
+
+.cp-status[data-phase="rejected"] {
+  color: #ffb4a8;
+  font-weight: 700;
+}
+
+.cp-status[data-phase="acknowledged"] {
+  color: #b6f3c0;
+}
+
+.cp-art-note {
+  color: #9aa8b8;
+  font-size: 0.75rem;
+}
+
+.cp-order-count-label {
+  font-size: 0.78rem;
+  color: #c5d0dc;
+}
+
+.cp-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cp-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cp-unit:focus-visible,
+.cp-text-button:focus-visible,
+.cp-order:focus-visible {
+  outline: 3px solid #ffe08a;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cp-order-sweep {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .cp-order,
+  .cp-unit,
+  .cp-pip,
+  .cp-emote {
+    border: 1px solid CanvasText;
+  }
+}

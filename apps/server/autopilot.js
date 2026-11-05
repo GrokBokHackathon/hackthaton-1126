@@ -5,6 +5,7 @@
 //   roamer — escort a friendly carrier, otherwise patrol midfield
 // Any carrier paths home and treats tiles within 4 of an enemy as expensive.
 
+import { commandGoal } from "./commands.js";
 import { nearestWalkable, planPath } from "./path.js";
 
 export const DEFAULT_ROLES = ["runner", "guard", "roamer"];
@@ -120,7 +121,11 @@ export function steerSquad(match, arriveRadius = 0.7) {
     if (!player.autopilot) continue;
     if (player.state === "tagged" || player.state === "respawn") continue;
     const carrying = player.hasFlag;
-    const goal = carrying ? match.map.bases[player.team] : roleGoal(match, player);
+    const ordered = commandGoal(player);
+    const goal = carrying ? match.map.bases[player.team] : ordered || roleGoal(match, player);
+    if (ordered && !carrying && Math.hypot(ordered.x - player.x, ordered.y - player.y) <= arriveRadius) {
+      player.order = { source: "role-default", role: player.role };
+    }
     const avoid = [];
     if (carrying) {
       for (const other of match.players.values()) {
