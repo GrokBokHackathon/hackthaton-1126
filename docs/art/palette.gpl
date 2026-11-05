@@ -1,0 +1,31 @@
+GIMP Palette
+Name: Flag Raid Emoji
+Columns: 5
+#
+ 43  27  51 outline
+ 26  16  32 shadow
+232 154  28 face_shadow
+255 204  51 face
+255 240 160 face_hi
+255 255 255 eye_white
+255 143 160 blush
+ 91 168  74 grass_dark
+124 200  90 grass
+232 200 144 path
+106 106 138 wall_dark
+154 154 184 wall
+ 31 110  78 bush_dark
+ 47 154 106 bush
+138  82  48 wood_dark
+192 122  64 wood
+110  16  32 red_0
+196  32  50 red_1
+255 122 110 red_2
+ 74  42 144 bot_0
+162 123 255 bot_1
+220 200 255 bot_2
+ 79 168 232 water
+ 46 111 184 water_dark
+ 80  80  80 mask_0
+140 140 140 mask_1
+208 208 208 mask_2
