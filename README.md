@@ -55,6 +55,7 @@ The client works on phone and desktop with responsive zoom:
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | WebSocket JSON game protocol (join, input, state, scored, matchEnd, newMap) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
 | [docs/STATUS.md](docs/STATUS.md) | Current implementation status and roadmap |
+| [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative discussion proposal only (two patrons, six AI heroes). Not the baseline, not implemented. |
 
 ## Verified deployment
 
