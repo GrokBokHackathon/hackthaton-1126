@@ -184,8 +184,35 @@ From `apps/server/game.js` CONFIG:
 - `tickRate`: 20 Hz
 - `winScore`: 3 captures
 - `matchEndDelayMs`: 5000 (delay before new map)
-- `visionRadius`: 7 tiles (for future fog of war)
-- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight)
+- `visionRadius`: 7 tiles (Euclidean to the tile center, inclusive)
+- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight; the blocker tile is seen, past it is not)
+
+## Fog (team snapshot)
+
+`state` on `/ws` is per team, from `Match.clientStateFor`. `getState()` remains the full server view and is not broadcast.
+
+Player `x` and `y` stay tile coordinates. A mask cell is integer tile `(x, y)` at index `y * width + x` (`encoding: "row-major-u8"`, values 0 or 1). `fog.explored` lasts until the round resets. `fog.visible` is this tick. Each team receives only its own masks. Enemies are omitted unless their tile is visible. A flag the team cannot see is `{ "hidden": true }` with no coordinates. The static map in `welcome` / `newMap` is still the full tile grid.
+
+`assessOrderTarget` checks a tile for a later order: `scout` may be unexplored, `tag` must be visible now, other orders must be explored. It does not spend command points or apply an order.
+
+`state.fog` fields, and nothing else is required to draw:
+
+```json
+{
+  "width": 64,
+  "height": 40,
+  "encoding": "row-major-u8",
+  "team": "red",
+  "visible": [0, 1],
+  "explored": [0, 1]
+}
+```
+
+`visible` and `explored` are flat arrays of 0 and 1. Tile size is not in the snapshot. Use 32, or `map.tileSize` if the client already has one. Player `x` and `y` are unchanged: tile coordinates, not pixels.
+
+`apps/web/fog.js` exports `drawFog(ctx, fog, mapOrTileSize)`. It registers no listeners. Call it in the world pass after `translate` / `scale`, so the mask is in world pixels (`width * tileSize` by `height * tileSize`). One source pixel per tile is scaled with smoothing. Unexplored is `#1A1020`, explored is `#1A1020` at 60% alpha, and a visible cell is clear. This file does not edit `game.js`. The client owner calls `drawFog` once `state.fog` exists. A hidden flag must not be drawn when `hidden` is true.
+
+Turning the overlay off cannot reveal enemies or flag coordinates that were left out of `state`.
 
 ## Map Generation
 

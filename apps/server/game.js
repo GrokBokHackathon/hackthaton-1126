@@ -1,5 +1,6 @@
 // Core game logic: map generation, match loop, rules
 import { randomBytes } from "node:crypto";
+import { clientSnapshot, resetFog } from "./fog.js";
 
 // Configuration
 export const CONFIG = {
@@ -194,6 +195,11 @@ export class Match {
     this.winner = null;
     this.endTime = null;
     this.newMapGenerated = true; // Flag for server to send newMap message
+    resetFog(this);
+  }
+
+  clientStateFor(team) {
+    return clientSnapshot(this, team, CONFIG.visionRadius, CONFIG.visionBlockers);
   }
 
   getMapData() {
