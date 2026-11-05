@@ -3,178 +3,623 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Capture the Flag client</title>
+    <title>Flag Raid - Humans vs Grok Bots CTF</title>
+    <meta name="description" content="Silly realtime multiplayer Capture the Flag: humans versus Grok Bots on a 2D top-down map. Party chaos meets emoji warfare." />
     <style>
       :root {
-        color-scheme: light dark;
-        font-family: "Segoe UI", system-ui, sans-serif;
+        --red-human: #C42032;
+        --purple-bot: #A27BFF;
+        --dark-bg: #0a0a0f;
+        --darker-bg: #050508;
+        color-scheme: dark;
       }
+      
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
       body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: var(--dark-bg);
+        color: #fff;
+        line-height: 1.6;
+        overflow-x: hidden;
+      }
+      
+      .container {
+        max-width: 1200px;
         margin: 0 auto;
-        max-width: 40rem;
-        padding: 2rem 1.25rem 3rem;
-        line-height: 1.45;
+        padding: 0 1.5rem;
       }
+      
+      header {
+        padding: 1.5rem 0;
+        position: relative;
+        z-index: 100;
+      }
+      
+      .logo {
+        font-size: 1.5rem;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        color: #fff;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      
+      .logo-flag {
+        font-size: 2rem;
+      }
+      
+      .hero {
+        min-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        position: relative;
+        padding: 2rem 0 4rem;
+        overflow: hidden;
+        background: radial-gradient(ellipse at center, rgba(162, 123, 255, 0.15) 0%, transparent 60%),
+                    radial-gradient(ellipse at 80% 20%, rgba(196, 32, 50, 0.1) 0%, transparent 50%);
+      }
+      
+      .hero-bg-elements {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      
+      .floating-emoji {
+        position: absolute;
+        font-size: 3rem;
+        animation: float-drift 8s ease-in-out infinite;
+        opacity: 0.3;
+      }
+      
+      @keyframes float-drift {
+        0%, 100% { transform: translate(0, 0) rotate(0deg); }
+        25% { transform: translate(20px, -30px) rotate(5deg); }
+        50% { transform: translate(-10px, -50px) rotate(-3deg); }
+        75% { transform: translate(15px, -25px) rotate(4deg); }
+      }
+      
+      .emoji-1 { top: 15%; left: 8%; animation-delay: 0s; font-size: 4rem; }
+      .emoji-2 { top: 25%; right: 12%; animation-delay: 1.5s; font-size: 3.5rem; }
+      .emoji-3 { top: 50%; left: 5%; animation-delay: 3s; font-size: 3rem; }
+      .emoji-4 { top: 60%; right: 8%; animation-delay: 4.5s; font-size: 3.8rem; }
+      .emoji-5 { top: 70%; left: 15%; animation-delay: 2s; font-size: 2.8rem; }
+      .emoji-6 { top: 35%; right: 20%; animation-delay: 5s; font-size: 2.5rem; }
+      .emoji-7 { top: 10%; left: 25%; animation-delay: 1s; font-size: 2.2rem; }
+      .emoji-8 { top: 65%; right: 25%; animation-delay: 3.5s; font-size: 3.2rem; }
+      
+      .hero-content {
+        position: relative;
+        z-index: 10;
+        max-width: 900px;
+      }
+      
+      .title-container {
+        margin-bottom: 2rem;
+      }
+      
+      .title-small {
+        font-size: clamp(1rem, 3vw, 1.3rem);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        margin-bottom: 1rem;
+        opacity: 0.9;
+      }
+      
       h1 {
-        font-size: 1.6rem;
-        margin-bottom: 0.25rem;
+        font-size: clamp(3.5rem, 12vw, 8rem);
+        font-weight: 900;
+        margin-bottom: 1rem;
+        letter-spacing: -0.03em;
+        line-height: 0.9;
+        position: relative;
+        display: inline-block;
       }
-      label {
+      
+      .title-word {
+        display: inline-block;
+        position: relative;
+      }
+      
+      .title-flag {
+        background: linear-gradient(135deg, #ff4466 0%, var(--red-human) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 60px rgba(196, 32, 50, 0.5);
+        transform: skewY(-2deg);
+      }
+      
+      .title-raid {
+        background: linear-gradient(135deg, var(--purple-bot) 0%, #d0b3ff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 60px rgba(162, 123, 255, 0.5);
+        transform: skewY(1deg);
+      }
+      
+      .tagline {
+        font-size: clamp(1.3rem, 4vw, 2rem);
+        margin-bottom: 3rem;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      
+      .tagline-highlight-purple {
+        color: var(--purple-bot);
+        font-weight: 800;
+      }
+      
+      .tagline-highlight-red {
+        color: var(--red-human);
+        font-weight: 800;
+      }
+      
+      .tagline-dim {
+        opacity: 0.7;
+      }
+      
+      .cta-group {
+        display: flex;
+        gap: 1.2rem;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 3rem;
+      }
+      
+      .btn {
+        padding: 1.2rem 3rem;
+        font-size: 1.3rem;
+        font-weight: 800;
+        text-decoration: none;
+        border-radius: 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.8rem;
+        transition: all 0.3s ease;
+        border: 3px solid transparent;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      
+      .btn-primary {
+        background: linear-gradient(135deg, var(--purple-bot), #d0b3ff);
+        color: #000;
+        box-shadow: 0 8px 30px rgba(162, 123, 255, 0.5),
+                    0 0 60px rgba(162, 123, 255, 0.3);
+      }
+      
+      .btn-primary:hover {
+        transform: translateY(-3px) scale(1.05);
+        box-shadow: 0 12px 40px rgba(162, 123, 255, 0.7),
+                    0 0 80px rgba(162, 123, 255, 0.5);
+      }
+      
+      .btn-secondary {
+        background: transparent;
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      
+      .btn-secondary:hover {
+        border-color: rgba(255, 255, 255, 0.8);
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+      }
+      
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      
+      .feature-badge {
+        background: rgba(255, 255, 255, 0.05);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+      }
+      
+      .feature-badge:hover {
+        transform: translateY(-5px);
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--purple-bot);
+        box-shadow: 0 10px 40px rgba(162, 123, 255, 0.3);
+      }
+      
+      .feature-icon {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
         display: block;
-        margin-top: 1rem;
+      }
+      
+      .feature-title {
+        font-size: 1.1rem;
+        font-weight: 800;
+        margin-bottom: 0.3rem;
+        color: #fff;
+      }
+      
+      .feature-desc {
+        font-size: 0.85rem;
+        opacity: 0.7;
+        line-height: 1.4;
+      }
+      
+      .how-it-works {
+        padding: 5rem 0;
+        background: linear-gradient(180deg, var(--dark-bg) 0%, var(--darker-bg) 100%);
+        position: relative;
+      }
+      
+      .how-it-works::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(162, 123, 255, 0.5), transparent);
+      }
+      
+      .how-it-works h2 {
+        text-align: center;
+        font-size: clamp(2.5rem, 6vw, 4rem);
+        margin-bottom: 4rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        position: relative;
+      }
+      
+      .how-it-works h2::before,
+      .how-it-works h2::after {
+        content: '⚡';
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 2rem;
+        opacity: 0.5;
+      }
+      
+      .how-it-works h2::before {
+        left: -3rem;
+      }
+      
+      .how-it-works h2::after {
+        right: -3rem;
+      }
+      
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 2rem;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      
+      .step {
+        background: linear-gradient(135deg, rgba(162, 123, 255, 0.1) 0%, rgba(196, 32, 50, 0.1) 100%);
+        padding: 2.5rem;
+        border-radius: 24px;
+        border: 2px solid rgba(162, 123, 255, 0.3);
+        transition: all 0.4s ease;
+        position: relative;
+        overflow: hidden;
+      }
+      
+      .step::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--purple-bot), var(--red-human));
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      
+      .step:hover {
+        transform: translateY(-8px) scale(1.02);
+        border-color: var(--purple-bot);
+        box-shadow: 0 20px 60px rgba(162, 123, 255, 0.4);
+      }
+      
+      .step:hover::before {
+        opacity: 1;
+      }
+      
+      .step-number {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        background: var(--purple-bot);
+        color: #000;
+        border-radius: 50%;
+        font-weight: 900;
+        font-size: 1.3rem;
+        line-height: 40px;
+        text-align: center;
+        margin-bottom: 1rem;
+      }
+      
+      .step-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        display: block;
+      }
+      
+      .step h3 {
+        font-size: 1.8rem;
+        margin-bottom: 1rem;
+        color: #fff;
+        font-weight: 800;
+      }
+      
+      .step-highlight {
+        color: var(--purple-bot);
+      }
+      
+      .step p {
+        color: #ccc;
+        font-size: 1.05rem;
+        line-height: 1.6;
+      }
+      
+      .rally-cry {
+        padding: 4rem 0;
+        text-align: center;
+        background: radial-gradient(ellipse at center, rgba(196, 32, 50, 0.2) 0%, transparent 70%);
+      }
+      
+      .rally-cry h2 {
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 2rem;
+        line-height: 1.2;
+      }
+      
+      .rally-cry-line1 {
+        color: #fff;
+      }
+      
+      .rally-cry-line2 {
+        background: linear-gradient(135deg, var(--red-human) 0%, var(--purple-bot) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      
+      footer {
+        padding: 3rem 0;
+        text-align: center;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--darker-bg);
+      }
+      
+      footer p {
+        color: #888;
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+      }
+      
+      footer a {
+        color: var(--purple-bot);
+        text-decoration: none;
         font-weight: 600;
       }
-      input,
-      button {
-        font: inherit;
-        padding: 0.4rem 0.6rem;
+      
+      footer a:hover {
+        text-decoration: underline;
       }
-      input[type="url"] {
-        width: 100%;
-        box-sizing: border-box;
-        margin-top: 0.35rem;
+      
+      @media (max-width: 768px) {
+        .hero {
+          min-height: 90vh;
+          padding: 1rem 0 3rem;
+        }
+        
+        h1 {
+          font-size: clamp(3rem, 15vw, 5rem);
+        }
+        
+        .cta-group {
+          flex-direction: column;
+          gap: 1rem;
+        }
+        
+        .btn {
+          width: 100%;
+          justify-content: center;
+          padding: 1.2rem 2rem;
+        }
+        
+        .floating-emoji {
+          font-size: 2rem !important;
+        }
+        
+        .features {
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+        }
+        
+        .feature-badge {
+          padding: 1.2rem 0.8rem;
+        }
+        
+        .feature-icon {
+          font-size: 2.5rem;
+        }
+        
+        .feature-title {
+          font-size: 0.95rem;
+        }
+        
+        .feature-desc {
+          font-size: 0.75rem;
+        }
+        
+        .how-it-works {
+          padding: 3rem 0;
+        }
+        
+        .how-it-works h2::before,
+        .how-it-works h2::after {
+          display: none;
+        }
+        
+        .steps {
+          grid-template-columns: 1fr;
+          gap: 1.5rem;
+        }
+        
+        .step {
+          padding: 2rem 1.5rem;
+        }
       }
-      form {
-        display: flex;
-        gap: 0.5rem;
-        margin: 1rem 0;
-      }
-      form input {
-        flex: 1;
-      }
-      pre {
-        padding: 0.75rem 1rem;
-        overflow: auto;
-        white-space: pre-wrap;
-        background: color-mix(in srgb, CanvasText 8%, Canvas);
-        font-family: ui-monospace, "Cascadia Code", monospace;
+      
+      @media (max-width: 480px) {
+        .features {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>Capture the Flag</h1>
-    <p>
-      Local client stub. This machine runs the server and this page. The match
-      is realtime Capture the Flag: n humans versus m Grok Bots on a 2D top-down
-      map. Humans and bots join as players through the public tunnel URL. Bots
-      are not in Compose yet.
-    </p>
-    <label for="origin">Server origin</label>
-    <input id="origin" type="url" value="http://127.0.0.1:8080" spellcheck="false" />
-    <p>
-      For a public match, paste the tunnel origin, for example the
-      <code>https://</code> hostname configured in Cloudflare. Leave the token
-      out of this page. The tunnel token stays in the host environment.
-    </p>
-    <p id="status">Idle.</p>
-    <button id="check" type="button">Check health</button>
-    <pre id="health">(not checked)</pre>
-    <form id="echo-form">
-      <input id="echo-input" name="message" autocomplete="off" placeholder="Say flag" />
-      <button type="submit">Send</button>
-    </form>
-    <pre id="log"></pre>
-    <script>
-      const originInput = document.querySelector("#origin");
-      const status = document.querySelector("#status");
-      const health = document.querySelector("#health");
-      const log = document.querySelector("#log");
-      const form = document.querySelector("#echo-form");
-      const echoInput = document.querySelector("#echo-input");
-      let socket;
-      let attempt = 0;
-      let stopped = true;
-
-      function origin() {
-        return originInput.value.trim().replace(/\/+$/, "");
-      }
-
-      function wsUrl() {
-        const base = new URL(origin());
-        base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
-        base.pathname = "/ws";
-        base.search = "";
-        base.hash = "";
-        return base.toString();
-      }
-
-      function line(text) {
-        log.textContent += text + "\n";
-      }
-
-      function connect() {
-        if (stopped) {
-          return;
-        }
-        const url = wsUrl();
-        const current = new WebSocket(url);
-        socket = current;
-        status.textContent = "Connecting to " + url;
-        current.addEventListener("open", () => {
-          if (socket !== current) {
-            return;
-          }
-          attempt = 0;
-          status.textContent = "Connected to " + url;
-        });
-        current.addEventListener("message", (event) => {
-          if (socket === current) {
-            line("< " + event.data);
-          }
-        });
-        current.addEventListener("close", () => {
-          if (stopped || socket !== current) {
-            return;
-          }
-          attempt += 1;
-          const wait = Math.min(5000, 500 * attempt);
-          status.textContent = "Disconnected. Reconnecting in " + wait + "ms";
-          setTimeout(connect, wait);
-        });
-      }
-
-      function reconnect() {
-        stopped = true;
-        const previous = socket;
-        socket = null;
-        if (previous) {
-          previous.close();
-        }
-        log.textContent = "";
-        stopped = false;
-        connect();
-      }
-
-      document.querySelector("#check").addEventListener("click", async () => {
-        health.textContent = "Loading…";
-        try {
-          const response = await fetch(origin() + "/health", { cache: "no-store" });
-          const body = await response.json();
-          health.textContent = JSON.stringify(body, null, 2);
-        } catch (error) {
-          health.textContent = String(error);
-        }
-        reconnect();
-      });
-
-      originInput.addEventListener("change", () => {
-        health.textContent = "(not checked)";
-        reconnect();
-      });
-
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const message = echoInput.value;
-        if (!socket || socket.readyState !== WebSocket.OPEN) {
-          line("not connected");
-          return;
-        }
-        socket.send(message);
-        line("> " + message);
-        echoInput.value = "";
-      });
-
-      reconnect();
-    </script>
+    <div class="container">
+      <header>
+        <a href="/" class="logo">
+          <span class="logo-flag">🚩</span> Flag Raid
+        </a>
+      </header>
+    </div>
+    
+    <section class="hero">
+      <div class="hero-bg-elements">
+        <span class="floating-emoji emoji-1">🚩</span>
+        <span class="floating-emoji emoji-2">🤖</span>
+        <span class="floating-emoji emoji-3">💨</span>
+        <span class="floating-emoji emoji-4">⚡</span>
+        <span class="floating-emoji emoji-5">🏆</span>
+        <span class="floating-emoji emoji-6">💥</span>
+        <span class="floating-emoji emoji-7">🎮</span>
+        <span class="floating-emoji emoji-8">🔥</span>
+      </div>
+      
+      <div class="hero-content">
+        <div class="title-container">
+          <div class="title-small">🎮 Realtime Multiplayer CTF</div>
+          <h1>
+            <span class="title-word title-flag">Flag</span>
+            <span class="title-word title-raid">Raid</span>
+          </h1>
+        </div>
+        
+        <p class="tagline">
+          <span class="tagline-highlight-purple">Humans</span> 
+          <span class="tagline-dim">vs</span> 
+          <span class="tagline-highlight-red">Grok Bots</span>
+          <span class="tagline-dim">— steal the flag, zero chill.</span>
+        </p>
+        
+        <div class="cta-group">
+          <a href="https://hakaton-11-26.wffe.io/game.html" class="btn btn-primary">
+            ▶ Play Now
+          </a>
+          <a href="https://github.com/GrokBokHackathon/hackthaton-1126" class="btn btn-secondary">
+            ⚙ View Repo
+          </a>
+        </div>
+        
+        <div class="features">
+          <div class="feature-badge">
+            <span class="feature-icon">🎉</span>
+            <div class="feature-title">Party Chaos</div>
+            <div class="feature-desc">Zero seriousness. Maximum mayhem.</div>
+          </div>
+          <div class="feature-badge">
+            <span class="feature-icon">👥</span>
+            <div class="feature-title">Humans vs Bots</div>
+            <div class="feature-desc">Team up or troll. No bots left behind.</div>
+          </div>
+          <div class="feature-badge">
+            <span class="feature-icon">💀</span>
+            <div class="feature-title">Steal. Taunt. Win.</div>
+            <div class="feature-desc">Grab flag. Flex on them. Repeat.</div>
+          </div>
+          <div class="feature-badge">
+            <span class="feature-icon">🔥</span>
+            <div class="feature-title">Zero Chill Mode</div>
+            <div class="feature-desc">Fast rounds. Big laughs. Expect mayhem.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+    <section class="how-it-works">
+      <div class="container">
+        <h2>How It Works</h2>
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <span class="step-icon">🏴‍☠️</span>
+            <h3><span class="step-highlight">Grab</span> the Flag</h3>
+            <p>Rush to the enemy base and touch their flag to pick it up. WASD on desktop, joystick on mobile. Don't get tagged!</p>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <span class="step-icon">🏃💨</span>
+            <h3><span class="step-highlight">Run</span> It Home</h3>
+            <p>Sprint back to your base with the flag. Watch out—enemies can tag you in their territory and send you back!</p>
+          </div>
+          <div class="step">
+            <span class="step-number">3</span>
+            <span class="step-icon">🏆</span>
+            <h3><span class="step-highlight">First to 3</span></h3>
+            <p>Score three captures before the other team. New procedural map each round. Pure party chaos. No chill allowed.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+    <section class="rally-cry">
+      <div class="container">
+        <h2>
+          <div class="rally-cry-line1">Play Silly. Win Funny.</div>
+          <div class="rally-cry-line2">Flag Raid! 🎮</div>
+        </h2>
+      </div>
+    </section>
+    
+    <footer>
+      <div class="container">
+        <p>Built for the hackathon. Open source and silly.</p>
+        <p>
+          <a href="https://github.com/GrokBokHackathon/hackthaton-1126">GitHub</a> · 
+          <a href="https://hakaton-11-26.wffe.io/game.html">Play Now</a>
+        </p>
+      </div>
+    </footer>
   </body>
 </html>

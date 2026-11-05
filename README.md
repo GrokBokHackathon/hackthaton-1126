@@ -64,8 +64,10 @@ The client works on phone and desktop with responsive zoom:
 Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. Wiktor owns hosting: the server and clients run on that laptop with Podman via `docker-compose`, then Cloudflare Tunnel. Do not run this stack on a bot or cloud-agent machine.
 
 - Local server: <http://127.0.0.1:8080>
-- Local web client: <http://127.0.0.1:3000>
+- Local web client landing page: <http://127.0.0.1:3000>
+- Local game client: <http://127.0.0.1:3000/game.html>
 - Public URL: <https://hakaton-11-26.wffe.io>
+- Public game: <https://hakaton-11-26.wffe.io/game.html>
 - `GET /health` → `200` with `{"ok":true,"service":"flag-raid","role":"realtime-game-server","websocket":"/ws","players":N,"phase":"playing|waiting|ended"}`
 - `wss://…/ws` from an external machine: full game protocol (see [docs/PROTOCOL.md](docs/PROTOCOL.md))
 - Cloudflare public hostname → `http://server:8080` on the Compose `game` network
@@ -75,7 +77,7 @@ Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. Wiktor owns h
 
 ```
 apps/server          Realtime game server: GET /health, WebSocket /ws game protocol
-apps/web             Canvas web client with WASD/arrow movement and touch controls
+apps/web             Marketing landing page (/) and game client (/game.html)
 apps/bot             Bot client with simple AI
 docker-compose.yml   server + web + cloudflared
 .env.example         Empty CLOUDFLARE_TUNNEL_TOKEN=  (copy to .env; never commit .env)

@@ -27,6 +27,8 @@
    - Tile types: floor, wall (blocks), crate (blocks), bush (walkable, blocks vision)
 
 4. **Web client**
+   - Marketing landing page at `/` with play CTA and game info
+   - Game client at `/game.html`
    - Responsive zoom system: 16 tiles always visible on short side
    - Camera follows local player, clamped to map edges
    - Works on desktop (WASD/arrows) and mobile (on-screen joystick)
@@ -101,7 +103,8 @@ Planned effects (not implemented):
 ### Local Docker Compose
 ```bash
 docker compose up --build server web
-# Open http://127.0.0.1:3000/ in multiple tabs
+# Landing page: http://127.0.0.1:3000/
+# Game client: http://127.0.0.1:3000/game.html (open in multiple tabs to play)
 ```
 
 ### Add a bot
@@ -114,7 +117,8 @@ node apps/bot/bot.js ws://127.0.0.1:8080/ws BotA
 If `CLOUDFLARE_TUNNEL_TOKEN` is set in `.env`:
 ```bash
 docker compose up --build
-# Open https://<your-hostname>/ from any device
+# Landing: https://<your-hostname>/
+# Game: https://<your-hostname>/game.html (open from any device)
 node apps/bot/bot.js wss://<your-hostname>/ws BotA
 ```
 
