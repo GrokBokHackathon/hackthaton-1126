@@ -24,6 +24,8 @@ const STATIC_TYPES = {
   ".webp": "image/webp",
 };
 
+// Public files the browser actually loads. apps/web/package.json stays on disk
+// for local ESM/tooling; nothing in the client imports it over HTTP.
 const STATIC_ALLOW_EXACT = new Set([
   "/game.html",
   "/game.js",
@@ -269,7 +271,8 @@ setInterval(() => {
 
   roomRouter.tick(dt);
 
-  // Same phases as main: play, sudden death, and the results hold.
+  // Play, sudden death, and the results hold. The HUD reads phase, remainingMs,
+  // roundId, winner, and winReason from this snapshot.
   if (shouldBroadcastState(match.phase)) {
     for (const [id, ws] of clients.entries()) {
       const player = match.players.get(id);
