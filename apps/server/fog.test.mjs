@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import { WebSocket } from "ws";
 import { CONFIG, Match } from "./game.js";
-import { fogPixel } from "../web/fog-overlay.js";
+import { fogPixel } from "../web/fog.js";
 import { assessOrderTarget, clientSnapshot, resetFog, seesTile, visibleMask } from "./fog.js";
 
 const BLOCK = CONFIG.visionBlockers;

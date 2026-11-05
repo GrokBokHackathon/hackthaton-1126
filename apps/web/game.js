@@ -1,5 +1,4 @@
 import { CONFIG, drawTile, drawPlayer, drawFlag, drawBase } from "./assets.js";
-import { drawFogOverlay } from "./fog-overlay.js";
 
 export class Game {
   constructor(canvasId, serverOrigin) {
@@ -330,20 +329,10 @@ export class Game {
     drawBase(ctx, this.map.bases.red, "red");
     drawBase(ctx, this.map.bases.bot, "bot");
 
-    // Fog is in world pixels inside the current translate/scale (tile * 32).
-    // Camera mount from commander/ stays a later integration. Badges would draw after units.
-    if (this.state.fog) {
-      drawFogOverlay(ctx, this.state.fog, { tileSize: CONFIG.tileSize });
-    }
-
     // Draw flags
     const time = Date.now();
-    if (!this.state.flags.red.hidden && Number.isFinite(this.state.flags.red.x)) {
-      drawFlag(ctx, this.state.flags.red, "red", time);
-    }
-    if (!this.state.flags.bot.hidden && Number.isFinite(this.state.flags.bot.x)) {
-      drawFlag(ctx, this.state.flags.bot, "bot", time);
-    }
+    drawFlag(ctx, this.state.flags.red, "red", time);
+    drawFlag(ctx, this.state.flags.bot, "bot", time);
 
     // Draw players (own player last for highlight visibility)
     const otherPlayers = this.state.players.filter((p) => p.id !== this.playerId);
