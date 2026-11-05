@@ -57,6 +57,7 @@ The client works on phone and desktop with responsive zoom:
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
 | [docs/STATUS.md](docs/STATUS.md) | Current implementation status and roadmap |
 | [docs/ART_INTEGRATION.md](docs/ART_INTEGRATION.md) | Atlas rendering system, sprite specs, graceful fallback |
+| [docs/art/README.md](docs/art/README.md) | Art pack: sprites, atlas, naming, blocking rules, regeneration |
 | [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) | Alternative patron-and-heroes proposal (discussion only, not implemented) |
 
 ## Verified deployment
