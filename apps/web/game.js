@@ -45,6 +45,8 @@ export class Game {
     this.linkState = "idle";
     this.artProof = emptyArtProof();
 
+    this.spritesLoaded = false;
+
     this.unmountCamera = mountCameraInput(this.canvas, (gesture) => this.onCameraGesture(gesture), {
       getContext: () => ({
         units: unitsFromState(this.state).units,
@@ -54,6 +56,18 @@ export class Game {
     });
 
     this.setupCanvas();
+    this.loadSprites();
+  }
+  
+  async loadSprites() {
+    this.spritesLoaded = await spriteLoader.load();
+    if (!this.spritesLoaded) {
+      console.warn("Failed to load sprites, using fallback rendering");
+    }
+    // Expose for testing
+    if (typeof window !== "undefined") {
+      window.spritesLoaded = this.spritesLoaded;
+    }
   }
 
   setupCanvas() {
@@ -380,7 +394,6 @@ export class Game {
   }
 
   start() {
-    spriteLoader.load();
     this.connect();
     const loop = () => {
       if (this.stopped) return;

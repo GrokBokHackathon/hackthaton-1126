@@ -1,5 +1,5 @@
-// Asset configuration and rendering with atlas support
-import { atlas, getCharFrame, getCharFrameName, FRAME_TIMING } from "./atlas.js";
+// Asset configuration and rendering with art-pack sprites via spriteLoader
+import { spriteLoader } from "./spriteLoader.js";
 
 export const CONFIG = {
   tileSize: 32,
@@ -16,12 +16,22 @@ export const TEAM_COLORS = {
   bot: "#A27BFF",
 };
 
+// Animation frame timing (ms)
+export const FRAME_TIMING = {
+  run: 150,
+  flag: 250,
+  respawn: 80,
+  hit: 60,
+  dizzy: 150,
+  carry: 250,
+};
+
 // Tile rendering
 export const TILE_TYPES = {
-  0: { name: "floor", color: "#3a3a3a", atlasName: "tile_grass" },
-  1: { name: "wall", color: "#666", atlasPrefix: "wall_" },
-  2: { name: "crate", color: "#8b6f47", atlasName: "tile_crate" },
-  3: { name: "bush", color: "#2d5016", atlasName: "tile_bush" },
+  0: { name: "floor", color: "#3a3a3a" },
+  1: { name: "wall", color: "#666" },
+  2: { name: "crate", color: "#8b6f47" },
+  3: { name: "bush", color: "#2d5016" },
 };
 
 function calculateNeighbors(map, x, y, tileType) {
@@ -45,14 +55,22 @@ export function drawTile(ctx, tile, x, y, map = null) {
   let drawn = false;
 
   if (tile === 1 && map) {
-    // Wall with autotile (4-bit bitmask)
+    // Wall with autotile (4-bit bitmask, zero-padded)
     const neighbors = calculateNeighbors(map, x, y, 1);
-    const frameName = `wall_${neighbors}`;
-    drawn = atlas.drawFrame(ctx, frameName, x, y);
-  } else if (config.atlasName) {
-    // Try to draw from atlas
-    const frameName = config.atlasName + (tile === 0 ? "_0" : "");
-    drawn = atlas.drawFrame(ctx, frameName, x, y);
+    const frameName = `wall_${neighbors.toString().padStart(2, '0')}`;
+    drawn = spriteLoader.drawAt(ctx, frameName, x, y, 1);
+  } else if (tile === 0) {
+    // Floor - alternate grass_a and grass_b deterministically per tile
+    const tx = Math.floor(x / CONFIG.tileSize);
+    const ty = Math.floor(y / CONFIG.tileSize);
+    const grassVariant = ((tx + ty) % 2 === 0) ? "grass_a" : "grass_b";
+    drawn = spriteLoader.drawAt(ctx, grassVariant, x, y, 1);
+  } else if (tile === 2) {
+    // Crate
+    drawn = spriteLoader.drawAt(ctx, "crate_beer", x, y, 1);
+  } else if (tile === 3) {
+    // Bush
+    drawn = spriteLoader.drawAt(ctx, "bush", x, y, 1);
   }
 
   if (!drawn) {
@@ -88,6 +106,33 @@ const TEAM_EMOJI = {
   bot: "🤖",
 };
 
+// Get the character sprite key based on direction, state, and time
+function getCharSpriteKey(dir, state, hasFlag, time) {
+  const dirMap = { down: "down", left: "left", right: "right", up: "up" };
+  const direction = dirMap[dir] || "down";
+  
+  if (state === "tagged" || state === "respawn") {
+    // Dizzy animation when tagged or respawning
+    const frameIndex = Math.floor(time / FRAME_TIMING.dizzy) % 3;
+    return `char_dizzy_${frameIndex}`;
+  }
+  
+  if (hasFlag) {
+    // Carrying flag animation
+    const frameIndex = Math.floor(time / FRAME_TIMING.carry) % 2;
+    return `char_carry_${frameIndex}`;
+  }
+  
+  if (state === "running" || state === "moving") {
+    // Running animation
+    const frameIndex = (Math.floor(time / FRAME_TIMING.run) % 2) + 1;
+    return `char_${direction}_run${frameIndex}`;
+  }
+  
+  // Idle
+  return `char_${direction}_idle`;
+}
+
 export function drawPlayer(ctx, player, time, isOwn = false) {
   const size = CONFIG.frameSize;
   const x = player.x * CONFIG.tileSize - size / 2;
@@ -103,7 +148,7 @@ export function drawPlayer(ctx, player, time, isOwn = false) {
   // Respawn effect
   if (player.state === "respawn") {
     const frameIndex = Math.floor(time / FRAME_TIMING.respawn) % 4;
-    const drawn = atlas.drawFrame(ctx, `fx_respawn_${frameIndex}`, x, y);
+    const drawn = spriteLoader.drawAt(ctx, `respawn_${frameIndex}`, x, y, 1);
     if (drawn) {
       ctx.globalAlpha = 1;
       return; // Show only respawn effect
@@ -115,10 +160,9 @@ export function drawPlayer(ctx, player, time, isOwn = false) {
     ctx.globalAlpha = 0.7;
   }
 
-  // Try to draw sprite from atlas
-  const frameIndex = getCharFrame(player.dir, player.state, time);
-  const frameName = getCharFrameName(player.team, frameIndex);
-  const drawn = atlas.drawFrame(ctx, frameName, x, y);
+  // Try to draw sprite from art pack
+  const spriteKey = getCharSpriteKey(player.dir, player.state, player.hasFlag, time);
+  const drawn = spriteLoader.drawAt(ctx, spriteKey, x, y, 1, player.team);
 
   if (!drawn) {
     // Fallback to emoji
@@ -138,9 +182,10 @@ export function drawPlayer(ctx, player, time, isOwn = false) {
     ctx.stroke();
   }
 
-  // Flag carried indicator
+  // Flag carried indicator (bobbing 2px every 250ms)
   if (player.hasFlag) {
-    const flagDrawn = atlas.drawFrame(ctx, "flag_carried", x + size - 8, y - 8);
+    const bobOffset = Math.floor(time / FRAME_TIMING.flag) % 2 ? 2 : 0;
+    const flagDrawn = spriteLoader.drawAt(ctx, "flag_carried_indicator", x + size - 8, y - (8 - bobOffset), 1);
     if (!flagDrawn) {
       ctx.fillStyle = "#ffd700";
       ctx.font = "16px Arial";
@@ -169,10 +214,10 @@ export function drawFlag(ctx, flag, team, time) {
     return;
   }
 
-  // Animated flag (2 frames)
+  // Animated flag (2 frames at 250ms)
   const frameIndex = Math.floor(time / FRAME_TIMING.flag) % 2;
   const frameName = `flag_${team}_${frameIndex}`;
-  const drawn = atlas.drawFrame(ctx, frameName, x - size / 2, y - size / 2);
+  const drawn = spriteLoader.drawAt(ctx, frameName, x - size / 2, y - size / 2, 1);
 
   if (!drawn) {
     // Fallback emoji flag
@@ -190,9 +235,29 @@ export function drawBase(ctx, base, team) {
   const y = (base.y - 1) * CONFIG.tileSize;
   const color = TEAM_COLORS[team] || "#555";
 
-  // Try to draw base sprite
+  // Try to draw base sprite (64x64 in atlas)
   const frameName = `base_${team}`;
-  const drawn = atlas.drawFrameScaled(ctx, frameName, x, y, size, size);
+  const sprite = spriteLoader.getSprite(frameName);
+  
+  let drawn = false;
+  if (sprite) {
+    try {
+      ctx.drawImage(
+        sprite.image,
+        sprite.x,
+        sprite.y,
+        sprite.w,
+        sprite.h,
+        x,
+        y,
+        size,
+        size
+      );
+      drawn = true;
+    } catch (err) {
+      console.warn(`Failed to draw base sprite ${frameName}:`, err);
+    }
+  }
 
   if (!drawn) {
     // Fallback colored rectangle
