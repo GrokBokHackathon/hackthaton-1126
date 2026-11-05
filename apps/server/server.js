@@ -208,7 +208,11 @@ setInterval(() => {
 
   // Broadcast state
   if (match.phase === "playing" || match.phase === "waiting") {
-    broadcast(match.getState());
+    for (const [id, ws] of clients.entries()) {
+      const player = match.players.get(id);
+      if (!player || ws.readyState !== ws.OPEN) continue;
+      ws.send(JSON.stringify(match.clientStateFor(player.team)));
+    }
   }
 }, TICK_MS);
 

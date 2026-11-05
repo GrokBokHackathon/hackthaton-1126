@@ -5,7 +5,7 @@ WORKDIR /app
 COPY apps/server/package.json apps/server/package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY apps/server/server.js apps/server/game.js ./
+COPY apps/server/server.js apps/server/game.js apps/server/fog.js ./
 COPY apps/web ./web
 
 ENV PORT=8080

@@ -184,8 +184,18 @@ From `apps/server/game.js` CONFIG:
 - `tickRate`: 20 Hz
 - `winScore`: 3 captures
 - `matchEndDelayMs`: 5000 (delay before new map)
-- `visionRadius`: 7 tiles (for future fog of war)
-- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight)
+- `visionRadius`: 7 tiles (Euclidean to the tile center, inclusive)
+- `visionBlockers`: [1, 3] (WALL and BUSH block line of sight; the blocker tile is seen, past it is not)
+
+## Fog (team snapshot)
+
+`state` on `/ws` is per team, from `Match.clientStateFor`. `getState()` remains the full server view and is not broadcast.
+
+Player `x` and `y` stay tile coordinates. A mask cell is integer tile `(x, y)` at index `y * width + x` (`encoding: "row-major-u8"`, values 0 or 1). `fog.explored` lasts until the round resets. `fog.visible` is this tick. Each team receives only its own masks. Enemies are omitted unless their tile is visible. A flag the team cannot see is `{ "hidden": true }` with no coordinates. The static map in `welcome` / `newMap` is still the full tile grid.
+
+`assessOrderTarget` checks a tile for a later order: `scout` may be unexplored, `tag` must be visible now, other orders must be explored. It does not spend command points or apply an order.
+
+The client paints the mask in world pixels (one pixel per tile, scaled with smoothing) inside the current camera transform: unexplored `#1A1020`, explored `#1A1020` at 60% alpha, visible with no overlay. Turning the overlay off cannot reveal enemies or flag coordinates that were not in `state`.
 
 ## Map Generation
 
