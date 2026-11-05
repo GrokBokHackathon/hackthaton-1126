@@ -1,44 +1,84 @@
 # Capture the Flag
 
-Silly realtime party game. **n humans vs m Grok Bots** on a **2D top-down** map. Everyone moves at once. Grab the flag. The plot can be dumb. Aimed at a playable slice in about three hours, beers included.
+Silly realtime multiplayer **Capture the Flag**: humans versus Grok Bots on a **2D top-down** map (emoji / Grok Bot party theme). Everyone moves at once. Grab the flag. Aimed at a playable hackathon slice in about three hours, beers included.
 
-This repository is the source of truth. Product choices are in [docs/DECISIONS.md](docs/DECISIONS.md).
+This repository is the handoff surface for Wiktor, Greg, and their bots. Product choices live in [docs/DECISIONS.md](docs/DECISIONS.md). The WebSocket game protocol is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
-## Goals
+## Status on `main`
 
-- Realtime Capture the Flag. Humans and bots move continuously on one shared map. Not turns, and not a between-match trainer.
-- Any number of humans against any number of Grok Bots. Bots are players.
-- Funny, silly, dumb. A party game for drinking with friends.
-- 2D top-down, because that is the fastest view to build.
-- Web clients over WebSockets. This host runs the server and publishes it with a Cloudflare Tunnel.
+**The game is now playable!** This build has a full realtime Capture the Flag match with procedurally generated 64×40 tile maps, server-authoritative gameplay at 20 Hz, web client with responsive camera and touch controls, and a bot client with simple AI. First to 3 captures wins, then a new map generates.
+
+## Product vision
+
+- Realtime CTF, not turn-based — **✅ Implemented**
+- Two sides: **humans vs bot(s)**, silly Grok Bot / emoji theme (**n humans vs m Grok Bots** — both counts can be more than one) — **✅ Implemented**
+- Bases on **opposite diagonals**; a **procedural map** each round with random obstacles and a **guaranteed path** between bases — **✅ Implemented**
+- Server runs on a **team computer**, published with a **Cloudflare Tunnel**; gameplay traffic is **WebSocket** at `/ws` — **✅ Ready**
+- Each player runs their **own client** and joins the public tunnel URL — **✅ Implemented**
+- **Mystery-box powerups** are the **next** slice after the live match (**planned, not started**)
+
+Stretch (optional): LLM rewrites of bot JSON behavior trees between matches or as a light mid-match tweak. See the decision log.
 
 ## Architecture
 
 ```
-Humans (web)  --WebSocket-->  Realtime game server
-Grok Bots     --WebSocket-->        |
-                                     +-- shared 2D top-down map
-                                     +-- positions, flag, score
+Humans (web clients)  --WebSocket /ws-->  Realtime game server (team host)
+Grok Bots (players)   --WebSocket /ws-->         |
+                                                  +-- shared 2D map (64×40 tiles)
+                                                  +-- positions, flags, score
 ```
 
-The core demo is movement on that map. The server broadcasts state while the match is live. Model calls are not on the movement path.
+Hosting stays on Wiktor's laptop (Podman / Docker Compose + Cloudflare Tunnel). Do not deploy the game stack onto a bot or cloud-agent machine. Coordinate only through this repo.
 
-Stretch, only if the match already runs: between matches, or as a light mid-match tweak, an LLM may rewrite a bot's JSON behavior tree (data, not game code). That work is optional. See the decision log.
+## Gameplay
 
-## Decisions
+- **2 teams**: Red (humans, top-left base) vs Bot (bots, bottom-right base)
+- **Rules**: Touch enemy flag to pick up, bring to your base to score. Tag enemy carriers in your half to return their flag.
+- **Win condition**: First to 3 captures
+- **Map**: 64×40 tiles, procedurally generated each round with guaranteed connectivity and meaningful obstacles
+- **Controls**: WASD/arrows on desktop, on-screen joystick on mobile
+- **Camera**: Follows your player, clamped to map edges with responsive zoom
 
-See [docs/DECISIONS.md](docs/DECISIONS.md) before changing the match, the map, or hosting.
+## Responsive Design
+
+The client works on phone and desktop with responsive zoom:
+- Shorter screen side always shows 16 tiles
+- Zoom ≥ 2: whole-number scale with nearest-neighbour (pixel-perfect)
+- Zoom < 2: fractional scale with smoothing
+- HUD rendered in screen space, handles resize and orientation changes
+
+## Docs map
+
+| Doc | Purpose |
+| --- | --- |
+| [README.md](README.md) | Status, vision, run pointers |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | WebSocket JSON game protocol (join, input, state, scored, matchEnd, newMap) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Product and architecture decisions |
+| [docs/STATUS.md](docs/STATUS.md) | Current implementation status and roadmap |
+
+## Verified deployment
+
+Checked on Wiktor's laptop, checkout `~/Projects/hackthaton-1126`. Wiktor owns hosting: the server and clients run on that laptop with Podman via `docker-compose`, then Cloudflare Tunnel. Do not run this stack on a bot or cloud-agent machine.
+
+- Local server: <http://127.0.0.1:8080>
+- Local web client: <http://127.0.0.1:3000>
+- Public URL: <https://hakaton-11-26.wffe.io>
+- `GET /health` → `200` with `{"ok":true,"service":"flag-raid","role":"realtime-game-server","websocket":"/ws","players":N,"phase":"playing|waiting|ended"}`
+- `wss://…/ws` from an external machine: full game protocol (see [docs/PROTOCOL.md](docs/PROTOCOL.md))
+- Cloudflare public hostname → `http://server:8080` on the Compose `game` network
+- `CLOUDFLARE_TUNNEL_TOKEN` only in ignored local `.env` — never commit tokens
 
 ## Layout
 
 ```
 apps/server          Realtime game server: GET /health, WebSocket /ws game protocol
-apps/web             Canvas web client with WASD/arrow movement
+apps/web             Canvas web client with WASD/arrow movement and touch controls
 apps/bot             Bot client with simple AI
 docker-compose.yml   server + web + cloudflared
-.env.example         Empty CLOUDFLARE_TUNNEL_TOKEN=  (copy to .env, do not commit .env)
+.env.example         Empty CLOUDFLARE_TUNNEL_TOKEN=  (copy to .env; never commit .env)
 docs/DECISIONS.md    Product and architecture choices
 docs/PROTOCOL.md     WebSocket JSON protocol documentation
+docs/STATUS.md       Implementation status and roadmap
 ```
 
 The game is playable: procedurally generated maps, realtime movement, capture the flag rules, and bot AI.
@@ -57,21 +97,20 @@ docker compose up --build server web
 # Podman: podman compose up --build server web
 ```
 
-Compose passes `CLOUDFLARE_TUNNEL_TOKEN` into cloudflared as `TUNNEL_TOKEN`. It is not placed on the process command line. Do not commit `.env`, and do not paste `docker compose config` after the token is set — that printout expands it.
+Compose maps `CLOUDFLARE_TUNNEL_TOKEN` → cloudflared `TUNNEL_TOKEN` (env only; not on the process argv). Do not commit `.env`, and do not paste `docker compose config` after the token is set — that printout expands it.
 
-In Cloudflare (Networking → Tunnels → your tunnel → Public hostname):
+Cloudflare public hostname: Type **HTTP**, URL **`http://server:8080`** (Compose service name on network `game`). Do not point at `localhost` inside the tunnel container; that is the tunnel container, not the game server.
 
-- Type: HTTP
-- URL: `http://server:8080`
-
-`server` is the Compose service name on the `game` network. Do not point the hostname at `localhost`; that is the tunnel container, not the game server.
-
-Published ports are loopback only:
+Loopback ports:
 
 - Game server: <http://127.0.0.1:8080/health>
 - Web client: <http://127.0.0.1:3000/>
 
-Open two or more browser tabs at <http://127.0.0.1:3000/> to play as multiple humans. Use WASD or arrow keys to move.
+Open <http://127.0.0.1:3000/> in two or more browser tabs to play as multiple humans. Use WASD or arrow keys to move.
+
+The server sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Clients reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
+
+Without a token: `docker compose up --build server web` (cloudflared exits until the token is set).
 
 ### Run a bot
 
@@ -101,37 +140,25 @@ node apps/bot/bot.js ws://127.0.0.1:8080/ws
 ```bash
 npm ci --prefix apps/server
 npm test --prefix apps/server
+# Tests: map connectivity, obstacle density, flag pickup, capture, tag-return, win/reset
 ```
 
-The server sends a WebSocket ping and a `{ "type": "heartbeat" }` message every 20 seconds. Clients reconnect if the socket drops. Cloudflare can idle-timeout a connection or restart an edge.
+## Next steps
+
+1. Wire in the placeholder art pack (atlas.json, sprite sheets) — **in progress**
+2. Add fog of war (server-computed, per-client state filtering)
+3. **Mystery-box powerups**: speed, shield, etc.
+4. Let Grok Bots join and replace simple AI with LLM decision-making
+5. Stretch: behavior-tree rewrites — see [docs/DECISIONS.md](docs/DECISIONS.md)
 
 ## Contributing
 
-- English only in this repo: docs, commits, issues, and in-repo copy.
-- Shared work. Invent features as we go and commit often so the other person can continue.
+This repository is the only place Wiktor, Greg, and their bots coordinate. Greg has his own separate Grok Bots. Write decisions and handoffs here, in English, so every collaborator can see them.
+
+Wiktor owns hosting. The server and clients stay on his laptop (Podman and Cloudflare Tunnel). Do not deploy them onto a bot or cloud-agent computer.
+
+- English only in this repo (docs, commits, issues, in-repo copy).
+- Docs for teammates land on **`main`** so `git pull` stays fresh; do not park shared docs on long-lived feature branches.
+- Code/gameplay changes are owned separately; docs bots only touch `*.md` / docs paths.
+- Invent features as we go and commit often.
 - Never commit secrets, tokens, API keys, tunnel tokens, credentials, or env values.
-
-## Gameplay
-
-- **2 teams**: Red (humans, top-left) vs Bot (bots, bottom-right)
-- **Rules**: Touch enemy flag to pick up, bring to your base to score. Tag enemy carriers in your half to return their flag.
-- **Win condition**: First to 3 captures
-- **Map**: 64x40 tiles, procedurally generated each round with guaranteed connectivity
-- **Controls**: WASD/arrows on desktop, on-screen joystick on mobile
-
-## Responsive Design
-
-The client works on phone and desktop with responsive zoom:
-- Shorter screen side always shows 16 tiles
-- Zoom ≥ 2: whole-number scale with nearest-neighbour (pixel-perfect)
-- Zoom < 2: fractional scale with smoothing
-- Camera follows your player, clamped to map edges
-- HUD rendered in screen space
-
-## Next Steps
-
-1. Wire in the placeholder art pack (atlas.json, sprite sheets)
-2. Add fog of war (server-computed, per-client state filtering)
-3. Powerups (speed, shield, etc.)
-4. LLM behavior tree editing for bots
-5. Voice/text commands for tactical changes
