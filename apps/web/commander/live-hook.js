@@ -99,9 +99,25 @@ export function forwardCommand(payload, send) {
     return { sent: false, reason: "payload-must-already-be-command" };
   }
   if (typeof send !== "function") return { sent: false, reason: "no-socket" };
+  let result;
+  try {
+    result = send(payload);
+  } catch (error) {
+    return { sent: false, reason: "send-threw", error };
+  }
+  if (result === false || (result && result.sent === false)) {
+    return { sent: false, reason: (result && result.reason) || "not-open" };
+  }
   const wire = JSON.stringify(payload);
-  send(payload);
   return { sent: true, wire };
+}
+
+/** Own autopilot ids from the latest command_view roster. Others cannot be ordered. */
+export function orderSelectionForUnit(unitId, roster) {
+  if (unitId == null || !Array.isArray(roster)) return null;
+  const row = roster.find((unit) => unit && unit.id === unitId);
+  if (!row || row.selectable === false) return null;
+  return { unitIds: [unitId] };
 }
 
 /** Integer tile from a canvas point. Shape matches assessOrderTarget's {x,y} check. */
