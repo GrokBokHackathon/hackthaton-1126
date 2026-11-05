@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Capture the Flag client</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 40rem;
+        padding: 2rem 1.25rem 3rem;
+        line-height: 1.45;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin-bottom: 0.25rem;
+      }
+      label {
+        display: block;
+        margin-top: 1rem;
+        font-weight: 600;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 0.4rem 0.6rem;
+      }
+      input[type="url"] {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 0.35rem;
+      }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        margin: 1rem 0;
+      }
+      form input {
+        flex: 1;
+      }
+      pre {
+        padding: 0.75rem 1rem;
+        overflow: auto;
+        white-space: pre-wrap;
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        font-family: ui-monospace, "Cascadia Code", monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Capture the Flag</h1>
+    <p>
+      Local client stub. This machine runs the server and this page. The match
+      is realtime Capture the Flag: n humans versus m Grok Bots on a 2D top-down
+      map. Humans and bots join as players through the public tunnel URL. Bots
+      are not in Compose yet.
+    </p>
+    <label for="origin">Server origin</label>
+    <input id="origin" type="url" value="http://127.0.0.1:8080" spellcheck="false" />
+    <p>
+      For a public match, paste the tunnel origin, for example the
+      <code>https://</code> hostname configured in Cloudflare. Leave the token
+      out of this page. The tunnel token stays in the host environment.
+    </p>
+    <p id="status">Idle.</p>
+    <button id="check" type="button">Check health</button>
+    <pre id="health">(not checked)</pre>
+    <form id="echo-form">
+      <input id="echo-input" name="message" autocomplete="off" placeholder="Say flag" />
+      <button type="submit">Send</button>
+    </form>
+    <pre id="log"></pre>
+    <script>
+      const originInput = document.querySelector("#origin");
+      const status = document.querySelector("#status");
+      const health = document.querySelector("#health");
+      const log = document.querySelector("#log");
+      const form = document.querySelector("#echo-form");
+      const echoInput = document.querySelector("#echo-input");
+      let socket;
+      let attempt = 0;
+      let stopped = true;
+
+      function origin() {
+        return originInput.value.trim().replace(/\/+$/, "");
+      }
+
+      function wsUrl() {
+        const base = new URL(origin());
+        base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+        base.pathname = "/ws";
+        base.search = "";
+        base.hash = "";
+        return base.toString();
+      }
+
+      function line(text) {
+        log.textContent += text + "\n";
+      }
+
+      function connect() {
+        if (stopped) {
+          return;
+        }
+        const url = wsUrl();
+        const current = new WebSocket(url);
+        socket = current;
+        status.textContent = "Connecting to " + url;
+        current.addEventListener("open", () => {
+          if (socket !== current) {
+            return;
+          }
+          attempt = 0;
+          status.textContent = "Connected to " + url;
+        });
+        current.addEventListener("message", (event) => {
+          if (socket === current) {
+            line("< " + event.data);
+          }
+        });
+        current.addEventListener("close", () => {
+          if (stopped || socket !== current) {
+            return;
+          }
+          attempt += 1;
+          const wait = Math.min(5000, 500 * attempt);
+          status.textContent = "Disconnected. Reconnecting in " + wait + "ms";
+          setTimeout(connect, wait);
+        });
+      }
+
+      function reconnect() {
+        stopped = true;
+        const previous = socket;
+        socket = null;
+        if (previous) {
+          previous.close();
+        }
+        log.textContent = "";
+        stopped = false;
+        connect();
+      }
+
+      document.querySelector("#check").addEventListener("click", async () => {
+        health.textContent = "Loading…";
+        try {
+          const response = await fetch(origin() + "/health", { cache: "no-store" });
+          const body = await response.json();
+          health.textContent = JSON.stringify(body, null, 2);
+        } catch (error) {
+          health.textContent = String(error);
+        }
+        reconnect();
+      });
+
+      originInput.addEventListener("change", () => {
+        health.textContent = "(not checked)";
+        reconnect();
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const message = echoInput.value;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          line("not connected");
+          return;
+        }
+        socket.send(message);
+        line("> " + message);
+        echoInput.value = "";
+      });
+
+      reconnect();
+    </script>
+  </body>
+</html>

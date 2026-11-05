@@ -1,0 +1,55 @@
+# Local Capture the Flag stack. Docker Compose and Podman Compose both read this file.
+# Players reach the server through the Cloudflare Tunnel, not through a published
+# public port. In the Cloudflare dashboard, point the public hostname at
+# http://server:8080 (this Compose service on the `game` network).
+
+services:
+  server:
+    build:
+      context: ./apps/server
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - game
+
+  web:
+    build:
+      context: ./apps/web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - server
+    networks:
+      - game
+
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Token stays in the environment. Do not pass it with --token (that puts it
+    # on the process command line). cloudflared reads TUNNEL_TOKEN.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - server
+    networks:
+      - game
+
+networks:
+  game:
