@@ -109,7 +109,7 @@ test("live Match results and newMap stay on the broadcast path", () => {
   assert.equal(match.clientStateFor("red").winner, null);
 });
 
-test("a commander room does not tick until core activates the match", async () => {
+test("a commander room ticks bots and the clock with no human body", async () => {
   const { child, ready } = startServer();
   try {
     const port = await ready;
@@ -122,24 +122,57 @@ test("a commander room does not tick until core activates the match", async () =
     const joined = await waitFor(bot.incoming, (message) => message.type === "room_welcome");
     assert.equal(joined.started, true);
     assert.equal(joined.team, "bot");
-    const first = await waitFor(red.incoming, (message) => message.type === "state");
-    assert.equal(first.phase, "waiting");
+    const first = await waitFor(
+      red.incoming,
+      (message) => message.type === "state" && message.phase === "playing"
+    );
     assert.equal(first.players.some((player) => player.kind === "human"), false);
-    assert.ok(first.players.length > 0);
+    assert.equal(typeof first.remainingMs, "number");
+    assert.equal(first.roundId, 1);
     const places = (message) =>
-      message.players.map((player) => [player.id, player.x, player.y]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      message.players
+        .map((player) => [player.id, player.x, player.y])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     const startedAt = places(first);
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    const last = latest(red.incoming, (message) => message.type === "state");
-    assert.equal(last.phase, "waiting");
-    assert.equal(last.remainingMs, first.remainingMs);
-    assert.deepEqual(places(last), startedAt);
-    red.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human" }));
-    const rejected = await waitFor(red.incoming, (message) => message.type === "join_rejected");
-    assert.equal(rejected.reason, "already_seated");
-    const after = latest(red.incoming, (message) => message.type === "state");
-    assert.equal(after.players.some((player) => player.kind === "human"), false);
+    const moved = await waitFor(red.incoming, (message) => {
+      if (message.type !== "state" || message.phase !== "playing") return false;
+      if (message.remainingMs >= first.remainingMs) return false;
+      const now = places(message);
+      return now.some((spot, index) => spot[1] !== startedAt[index][1] || spot[2] !== startedAt[index][2]);
+    });
+    assert.equal(moved.players.some((player) => player.kind === "human"), false);
+    assert.ok(moved.remainingMs < first.remainingMs);
+
     red.ws.close();
+    await once(red.ws, "close");
+    const again = connect(port);
+    await once(again.ws, "open");
+    again.ws.send(JSON.stringify({
+      type: "room_join",
+      roomId: created.roomId,
+      resumeToken: created.resumeToken,
+    }));
+    const back = await waitFor(again.incoming, (message) => message.type === "room_welcome");
+    assert.equal(back.seat, 1);
+    assert.equal(back.team, "red");
+    assert.equal(back.started, false);
+    assert.equal(typeof joined.mapSeed, "number");
+    assert.equal(back.mapSeed, joined.mapSeed);
+    const held = await waitFor(
+      bot.incoming,
+      (message) => message.type === "state" && message.phase === "playing" && message.remainingMs < moved.remainingMs
+    );
+    assert.equal(held.players.some((player) => player.kind === "human"), false);
+    const resumed = await waitFor(
+      again.incoming,
+      (message) => message.type === "state" && message.phase === "playing" && message.remainingMs < moved.remainingMs
+    );
+    assert.equal(resumed.players.some((player) => player.kind === "human"), false);
+    assert.equal(resumed.roundId, 1);
+    again.ws.send(JSON.stringify({ type: "join", name: "Ada", kind: "human" }));
+    const rejected = await waitFor(again.incoming, (message) => message.type === "join_rejected");
+    assert.equal(rejected.reason, "already_seated");
+    again.ws.close();
     bot.ws.close();
   } finally {
     child.kill("SIGTERM");

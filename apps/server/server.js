@@ -143,8 +143,8 @@ const clients = new Map(); // playerId -> ws
 
 function armRoomMatch(next) {
   spawnSquad(next, squadSize);
-  // Do not force phase. Match stays waiting with no human body until core
-  // publishes an explicit activation call. This router will use that API then.
+  // Squad must exist first. This does not insert a human body.
+  next.activateCommanderRoom();
   return next;
 }
 

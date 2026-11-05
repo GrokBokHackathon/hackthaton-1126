@@ -130,9 +130,13 @@ export function createLobbyRouter({
       }
       const result = lobby.disconnect(connectionId, now());
       sessions.delete(connectionId);
+      const roomId = result.roomId;
+      const match = roomId ? roomMatch(roomId) : null;
+      const snap = roomId ? lobby.snapshot(roomId) : null;
+      const seatsHeld = snap?.seats?.some((seat) => seat.filled);
+      if (match && snap && !seatsHeld) match.releaseCommanderRoom();
       for (const event of result.events) {
         if (event.type !== "room_state") continue;
-        const match = roomMatch(event.roomId);
         const message = { ...event };
         delete message.resumeToken;
         if (match) message.mapSeed = match.map.seed;
