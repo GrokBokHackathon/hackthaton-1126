@@ -20,7 +20,15 @@ export const CONFIG = {
   matchEndDelayMs: 5000,
   // Fog of war (prepare for future PR)
   visionRadius: 7, // tiles
-  visionBlockers: [1, 3], // WALL and BUSH
+  visionBlockers: [1, 3, 4], // WALL, BUSH, and TREE
+  // Character footprint (relative to center position, in tiles)
+  // Pivot is at (16, 30) pixels = (0.5, 0.9375) tiles on a 32px grid
+  // Footprint represents the character's feet/base collision area
+  footprintRadius: 0.3, // circular footprint for collision checks
+  // Tree slowdown factor (multiplicative speed reduction when in trees)
+  treeSlowdown: 0.5, // 50% speed in trees (same as documented mud behavior)
+  // Maximum movement step to prevent tunneling (in tiles)
+  maxMovementStep: 0.5,
 };
 
 const TICK_MS = 1000 / CONFIG.tickRate;
@@ -30,6 +38,7 @@ const FLOOR = 0;
 const WALL = 1;
 const CRATE = 2;
 const BUSH = 3;
+const TREE = 4;
 
 function randomId() {
   return randomBytes(8).toString("hex");
@@ -162,12 +171,57 @@ function distance(a, b) {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
+// Check if a tile is hard-blocking (walls, crates, out of bounds)
 function isBlocking(tiles, x, y, mapWidth, mapHeight) {
   const tx = Math.floor(x);
   const ty = Math.floor(y);
   if (tx < 0 || tx >= mapWidth || ty < 0 || ty >= mapHeight) return true;
   const tile = tiles[ty][tx];
   return tile === WALL || tile === CRATE;
+}
+
+// Check if a tile is a tree (walkable but slows movement)
+function isTileTree(tiles, x, y, mapWidth, mapHeight) {
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  if (tx < 0 || tx >= mapWidth || ty < 0 || ty >= mapHeight) return false;
+  return tiles[ty][tx] === TREE;
+}
+
+// Check if the character footprint collides with blocking terrain
+// Uses a circular footprint around the character's center position
+function checkFootprintCollision(tiles, x, y, radius, mapWidth, mapHeight) {
+  // Check the center point
+  if (isBlocking(tiles, x, y, mapWidth, mapHeight)) return true;
+  
+  // Check cardinal and diagonal points around the footprint perimeter
+  const checkPoints = [
+    { dx: radius, dy: 0 },      // East
+    { dx: -radius, dy: 0 },     // West
+    { dx: 0, dy: radius },      // South
+    { dx: 0, dy: -radius },     // North
+    { dx: radius * 0.707, dy: radius * 0.707 },    // SE
+    { dx: -radius * 0.707, dy: radius * 0.707 },   // SW
+    { dx: radius * 0.707, dy: -radius * 0.707 },   // NE
+    { dx: -radius * 0.707, dy: -radius * 0.707 },  // NW
+  ];
+  
+  for (const point of checkPoints) {
+    if (isBlocking(tiles, x + point.dx, y + point.dy, mapWidth, mapHeight)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Calculate movement speed multiplier based on terrain at position
+// Returns 1.0 for normal terrain, CONFIG.treeSlowdown for trees
+function getTerrainSpeedMultiplier(tiles, x, y, mapWidth, mapHeight, config) {
+  if (isTileTree(tiles, x, y, mapWidth, mapHeight)) {
+    return config.treeSlowdown;
+  }
+  return 1.0;
 }
 
 function directionName(dx, dy) {
@@ -340,16 +394,70 @@ export class Match {
         const ndy = player.dy / len;
         player.dir = directionName(ndx, ndy);
 
-        const speed = CONFIG.playerSpeed * dt * speedScale(this, player.team);
-        const newX = player.x + ndx * speed;
-        const newY = player.y + ndy * speed;
-
-        // Collision check
-        if (!isBlocking(this.map.tiles, newX, player.y, this.map.width, this.map.height)) {
-          player.x = newX;
-        }
-        if (!isBlocking(this.map.tiles, player.x, newY, this.map.width, this.map.height)) {
-          player.y = newY;
+        // Base speed with economy modifier
+        const baseSpeed = CONFIG.playerSpeed * dt * speedScale(this, player.team);
+        
+        // Apply terrain slowdown at current position
+        const terrainMultiplier = getTerrainSpeedMultiplier(
+          this.map.tiles, 
+          player.x, 
+          player.y, 
+          this.map.width, 
+          this.map.height,
+          CONFIG
+        );
+        const speed = baseSpeed * terrainMultiplier;
+        
+        // Calculate desired movement
+        const deltaX = ndx * speed;
+        const deltaY = ndy * speed;
+        
+        // Prevent tunneling: if movement is large, break into smaller steps
+        const movementMagnitude = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+        const numSteps = Math.max(1, Math.ceil(movementMagnitude / CONFIG.maxMovementStep));
+        const stepX = deltaX / numSteps;
+        const stepY = deltaY / numSteps;
+        
+        // Apply movement in substeps with footprint collision checking
+        for (let step = 0; step < numSteps; step++) {
+          const candidateX = player.x + stepX;
+          const candidateY = player.y + stepY;
+          
+          // Try moving in both axes
+          if (!checkFootprintCollision(
+            this.map.tiles, 
+            candidateX, 
+            candidateY, 
+            CONFIG.footprintRadius,
+            this.map.width, 
+            this.map.height
+          )) {
+            player.x = candidateX;
+            player.y = candidateY;
+          } else {
+            // Try X-only movement (slide along walls)
+            if (!checkFootprintCollision(
+              this.map.tiles, 
+              candidateX, 
+              player.y, 
+              CONFIG.footprintRadius,
+              this.map.width, 
+              this.map.height
+            )) {
+              player.x = candidateX;
+            }
+            // Try Y-only movement (slide along walls)
+            if (!checkFootprintCollision(
+              this.map.tiles, 
+              player.x, 
+              candidateY, 
+              CONFIG.footprintRadius,
+              this.map.width, 
+              this.map.height
+            )) {
+              player.y = candidateY;
+            }
+          }
         }
 
         player.state = player.hasFlag ? "carrying" : "running";
