@@ -2,7 +2,7 @@
 
 Realtime Capture the Flag on one shared 2D map. Bots move. Humans command. This README is the entry point for Wiktor, Grzegorz (Greg), and their bots. The repository is the handoff. It is not a claim that a full match has been accepted in a browser.
 
-Implementation that disagrees with an older doc is described from the modules below, read on `main` at the base of this change. Several older docs still say the commander model is unbuilt. Those pages lag the code.
+Implementation that disagrees with an older doc is described from the modules below, read at `main` `d5ecc9e7a1b342ae528d5ab9da119954a5db9d2a`. That commit contains PR #51 (`d70eb4d04624a7960f33677f9722a33d150b82de`, debug readout off unless `?debug=1`) and PR #52 (`f0d357eccd66844debfd29ce60dc59ccfee327a2`). Several older docs still say the commander model is unbuilt. Those pages lag the code.
 
 ## Source of truth
 
@@ -40,19 +40,20 @@ These behaviors are in the modules above. Unit tests cover many of them. This do
 - Rounds, from [apps/server/match-lifecycle.js](apps/server/match-lifecycle.js) and [apps/server/MATCH_LIFECYCLE.md](apps/server/MATCH_LIFECYCLE.md): 6:00 of play, first to 3 captures, a strict lead at the buzzer, or sudden death when the score is tied. Results hold for 10 seconds, then a new map and a fresh CP budget. `CONFIG.winScore` and `CONFIG.matchEndDelayMs` are still declared in `game.js`. The live clock is the lifecycle module, not that 5-second constant. [#11](https://github.com/GrokBokHackathon/hackthaton-1126/issues/11).
 - Two commander seats. There is no team id `blue`. Seat 1 is `red`. Seat 2 is `bot` (issue #19’s team A and team B). The bot side’s draw color is purple `#A27BFF`. A room id is 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The share path is `/lobby.html?room=CODE` and must not carry the resume token. `room_welcome` is the only frame with that token. The second filled seat starts one Match for that room, spawns the squad, and does not insert a human body. Mid-lobby disconnect frees the seat. Mid-match disconnect keeps the seat. The legacy `join` path still uses one separate match. Wiring note: [apps/server/LOBBY_INTEGRATION.md](apps/server/LOBBY_INTEGRATION.md). [#19](https://github.com/GrokBokHackathon/hackthaton-1126/issues/19).
 - The camera is a free view, not a follow camera ([#8](https://github.com/GrokBokHackathon/hackthaton-1126/issues/8)). The first frame centers on that commander’s base. Later resizes keep a pan. Zoom is `shortSide / (16 * 32)`. At 2 or above it floors to an integer and uses nearest-neighbour. Below 2 it stays fractional and smooths. Pinch and `input.zoom` are ignored. A drag past 8 px pans. Pan is in screen pixels for that update and is not multiplied by frame time. A double-tap on the same unit within 300 ms and 24 px centers on that unit. The view clamps to the map. `game.js` does not send `{ "type": "input" }`. WASD, arrows, and the on-screen joystick are not produced by the pointer tracker.
-- The command panel’s step list is `select`, then `order`, then `target` ([apps/web/command-panel.js](apps/web/command-panel.js)). Its own catalog is six orders (rally through tag) with no prices and no `beer`. Costs, cooldowns, and `beer` show up only when a `command_view` supplies them. The module’s `COMMAND_PANEL_INTEGRATION` flags `wiredToServer` and `wiredToGameClient` are still `false`, and the file header still says the server has no command messages. Those two flags were not updated when `game.js` started calling `mountCommandPanel` and `server.js` started accepting `command`. In `game.js`, a tap on a unit calls `setSelection`. A tap on empty map, while the step is `target`, offers an integer tile. The server `command` handler exists both for a legacy human `join` and for a seated lobby commander.
+- The command panel is mounted in the live client. `Game.start` calls `mountCommandPanel` on `#command-dock`. The panel callback is `sendCommand`, which sends `{ "type": "command" }`. `server.js` applies that message for a legacy human `join`. `lobby-router.js` applies it for a seated commander. The step list is `select`, then `order`, then `target` ([apps/web/command-panel.js](apps/web/command-panel.js)). The panel's own `COMMAND_ORDERS` list is six ids, rally through tag, with no prices and no `beer`. Costs, cooldowns, and `beer` appear when a `command_view` supplies them. In `game.js`, a tap on a unit calls `setSelection`. A tap on empty map, while the step is `target`, offers an integer tile.
+- Stale metadata, not a missing integration: `COMMAND_PANEL_INTEGRATION.wiredToServer` and `wiredToGameClient` are still `false`, and the comment above them still says the server has no command messages. Those constants were left behind. They are not the runtime check. The runtime check is the `mountCommandPanel` call and the `command` handlers above.
+- The debug readout is off unless the page is opened with `?debug=1`. That behavior is in this `main`, from PR #51 (`47b30317df88789f071fadf01b19e9044f736b6f` on `d70eb4d04624a7960f33677f9722a33d150b82de`). `debugOverlayEnabled` is true only when `debug` is `1`. `applyDebugOverlay` sets `data-debug-overlay` to `on` or `off`. [apps/web/game.html](apps/web/game.html) hides `#status`, `#fog`, and `#frames` unless that attribute is `on`, and those nodes keep `pointer-events: none`. [apps/web/debug-overlay.test.js](apps/web/debug-overlay.test.js) checks the parser and the markup. A browser look at a deployed host is a separate check under [Public URL](#public-url). It does not make the toggle unimplemented.
 
 ## WIP and not verified
 
 Do not treat the client as a finished, playable match. These items are unfinished or were not exercised in a browser for this change.
 
 - **Client lobby handoff is not live.** [apps/web/lobby.html](apps/web/lobby.html) will navigate to `/game.html?room=…&seat=…&team=…&commander=1` after `room_welcome` with `started: true`. [apps/web/game.js](apps/web/game.js) never reads `room`, `seat`, `team`, or `commander`. On socket open it always sends legacy `join` as a human body on the single match. The lobby page also still sets the status line “The live server does not route lobby messages until the core adapter lands,” while `server.js` already routes `room_create` and `room_join`. That handoff was not clicked through in a browser.
-- **Debug overlay is source-gated, not browser-checked here.** `#status`, `#fog`, and `#frames` stay hidden unless the page is opened with `?debug=1` (`debugOverlayEnabled`). The bar uses `pointer-events: none` so the readout cannot take clicks. [apps/web/debug-overlay.test.js](apps/web/debug-overlay.test.js) checks the parser and the markup. This pass did not open the page. The public `game.html` fetched during the check below did not contain `data-debug-overlay`, so that host was not serving this gate.
-- **Clicks are not accepted.** Selection, order, target, pan, and double-tap center are wired in source, and module tests cover the panel and the pointer tracker. Nobody clicked through a live match for this README. [#9](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9) and [#10](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10) stay open.
+- **Browser click acceptance is still open.** Selection, order, target, pan, and double-tap center are wired in `game.js` and the pointer tracker, and module tests cover those functions. This tree does not record a browser session that clicked through a live match. [#9](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9) and [#10](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10) stay open.
 - **Beer Rush on the panel still walks the three steps.** The server accepts `beer` with no `unitIds` and no `target`. The panel’s built-in list does not include `beer`. If a server view enables it, `chooseOrder` still moves to `target`, and `buildCommandPayload` still requires a selection and a target.
 - **The AI commander is not in the tree.** No module sends `command` on a 10-second timer. [apps/bot/bot.js](apps/bot/bot.js) is the older client: it `join`s as `kind: "bot"` and sends `input`. It is not the Grok Bot commander from issues #4 and #6.
 - **Mystery-box powerups are not implemented.**
-- **Issue #12 is open.** Serving and accepting the public client is not claimed done here. [#12](https://github.com/GrokBokHackathon/hackthaton-1126/issues/12).
+- **Issue #12 is still open.** [docs/issue12-podman-compose-runbook.md](docs/issue12-podman-compose-runbook.md) records a headless two-session smoke and a reading of Compose. That note does not claim the public tunnel was verified. [#12](https://github.com/GrokBokHackathon/hackthaton-1126/issues/12).
 
 ## Setup
 
@@ -106,9 +107,22 @@ node --test apps/web/debug-overlay.test.js apps/web/command-panel.test.mjs \
 
 ### Public URL
 
-`apps/web/index.html` links the game at <https://hakaton-11-26.wffe.io/game.html>. The same hostname is the one previously written for the tunnel.
+The hostname written in [apps/web/index.html](apps/web/index.html) is <https://hakaton-11-26.wffe.io/game.html>. This page does not record what that host is serving. Compare a running copy to the inspected tree yourself. Do not print a tunnel token.
 
-On this docs pass, `GET https://hakaton-11-26.wffe.io/health` returned HTTP 200 and JSON whose keys match the `server.js` health body: `ok`, `service` `flag-raid`, `role`, `websocket` `/ws`, `client` `/game.html`, plus a point-in-time `players` count and `phase`. That check used no tunnel token. It is reachability of the host, not a playtest, and not proof the host is running this commit. The `game.html` body returned by that host did not include `data-debug-overlay`. Lobby handoff, the debug readout, and map clicks were not exercised against it.
+```bash
+# Source of the claims above.
+git rev-parse origin/main
+# Expected while this section was written: d5ecc9e7a1b342ae528d5ab9da119954a5db9d2a
+
+# Blob of the client file in that commit.
+git rev-parse d5ecc9e7a1b342ae528d5ab9da119954a5db9d2a:apps/web/game.js
+
+# Blob of whatever the host returns right now.
+curl -fsS https://hakaton-11-26.wffe.io/game.js | git hash-object --stdin
+curl -fsS https://hakaton-11-26.wffe.io/health
+```
+
+Equal hashes mean the served `game.js` matches that commit. A health body from `server.js` has `ok`, `service`, `role`, `websocket`, `client`, `players`, and `phase`. A mismatch means the host is not that commit. This README does not store a result of those commands.
 
 ## Docs
 
@@ -121,6 +135,7 @@ Accurate enough to follow, with the lags named:
 | [apps/server/LOBBY_INTEGRATION.md](apps/server/LOBBY_INTEGRATION.md) | Seats, one Match per room, and the statement that `game.js` ignores the handoff query. |
 | [apps/server/MATCH_LIFECYCLE.md](apps/server/MATCH_LIFECYCLE.md) | 6:00, sudden death, 10-second results, reset hooks. Its note that `server.js` broadcasts only `playing` and `waiting` is stale: `shouldBroadcastState` also includes `sudden_death` and `results`. |
 | [docs/COLLISION_AND_TERRAIN.md](docs/COLLISION_AND_TERRAIN.md) | Footprints, tile speeds, vision blockers. [#23](https://github.com/GrokBokHackathon/hackthaton-1126/issues/23). |
+| [docs/issue12-podman-compose-runbook.md](docs/issue12-podman-compose-runbook.md) | Headless two-session smoke and the Compose file as read. It does not claim a public deploy. |
 
 These files are still in the tree and are **not** the current status. [docs/STATUS.md](docs/STATUS.md) and large parts of [docs/DECISIONS.md](docs/DECISIONS.md) still describe direct human control and an unbuilt commander model. [docs/COMMAND_PANEL_HANDOFF.md](docs/COMMAND_PANEL_HANDOFF.md) says the panel is not mounted; `game.js` does mount it. [apps/web/commander/HANDOFF.md](apps/web/commander/HANDOFF.md) says the client does not send `command`; `game.js` does. [docs/GAME_CONCEPT_V0_1.md](docs/GAME_CONCEPT_V0_1.md) is an older patron-and-heroes proposal, not the match.
 
@@ -133,9 +148,9 @@ These files are still in the tree and are **not** the current status. [docs/STAT
 | [#6](https://github.com/GrokBokHackathon/hackthaton-1126/issues/6) | CP economy. Open. Server costs and acks exist. The 10-second AI commander does not. |
 | [#7](https://github.com/GrokBokHackathon/hackthaton-1126/issues/7) | Fog. Closed in the server snapshot. |
 | [#8](https://github.com/GrokBokHackathon/hackthaton-1126/issues/8) | Camera scale. Closed in the camera module. |
-| [#9](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9), [#10](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10) | Panel and unit readability. Open. Wired in source, clicks not accepted. |
+| [#9](https://github.com/GrokBokHackathon/hackthaton-1126/issues/9), [#10](https://github.com/GrokBokHackathon/hackthaton-1126/issues/10) | Panel and unit readability. Open. The panel is mounted and sends `command`. Browser click acceptance is not recorded. |
 | [#11](https://github.com/GrokBokHackathon/hackthaton-1126/issues/11) | Round loop. Closed in `match-lifecycle.js`. |
-| [#12](https://github.com/GrokBokHackathon/hackthaton-1126/issues/12) | Public client origin. Open. Not accepted here. |
+| [#12](https://github.com/GrokBokHackathon/hackthaton-1126/issues/12) | Public client origin. Still open. The runbook does not claim the tunnel was verified. |
 | [#19](https://github.com/GrokBokHackathon/hackthaton-1126/issues/19) | Two-seat lobby. Open. Server seats exist. Client handoff does not. |
 | [#14](https://github.com/GrokBokHackathon/hackthaton-1126/issues/14), [#26](https://github.com/GrokBokHackathon/hackthaton-1126/issues/26) | External controller, and a review of camping plus same-tick flag stalemate. Open. |
 
