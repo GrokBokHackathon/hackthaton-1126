@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
 import test from "node:test";
-import { WebSocket } from "ws";
-import { shouldBroadcastState } from "./lobby-router.js";
-import { Match } from "./game.js";
+import { WebSocket, WebSocketServer } from "ws";
+import { createLobbyRouter, shouldBroadcastState } from "./lobby-router.js";
+import { spawnSquad } from "./autopilot.js";
+import { CONFIG, Match } from "./game.js";
 
 function startServer() {
   const child = spawn(process.execPath, ["server.js"], {
@@ -122,6 +123,29 @@ test("a commander room ticks bots and the clock with no human body", async () =>
     const joined = await waitFor(bot.incoming, (message) => message.type === "room_welcome");
     assert.equal(joined.started, true);
     assert.equal(joined.team, "bot");
+    assert.equal(joined.map.width, 64);
+    assert.equal(joined.map.height, 40);
+    assert.equal(joined.map.seed, joined.mapSeed);
+    assert.equal(joined.map.tiles.length, 40);
+    assert.equal(joined.map.tiles[0].length, 64);
+    assert.deepEqual(joined.map.bases.red, { x: 2, y: 2 });
+    let walls = 0;
+    let crates = 0;
+    for (const row of joined.map.tiles) {
+      for (const cell of row) {
+        if (cell === 1) walls += 1;
+        if (cell === 2) crates += 1;
+      }
+    }
+    assert.ok(walls > 0);
+    assert.ok(crates > 0);
+    assert.equal(joined.map.fog, undefined);
+    const board = await waitFor(
+      red.incoming,
+      (message) => message.type === "room_state" && message.phase === "match" && message.map
+    );
+    assert.deepEqual(board.map, joined.map);
+    assert.equal(JSON.stringify(board).includes(created.resumeToken), false);
     const first = await waitFor(
       red.incoming,
       (message) => message.type === "state" && message.phase === "playing"
@@ -158,6 +182,7 @@ test("a commander room ticks bots and the clock with no human body", async () =>
     assert.equal(back.started, false);
     assert.equal(typeof joined.mapSeed, "number");
     assert.equal(back.mapSeed, joined.mapSeed);
+    assert.deepEqual(back.map, joined.map);
     const held = await waitFor(
       bot.incoming,
       (message) => message.type === "state" && message.phase === "playing" && message.remainingMs < moved.remainingMs
@@ -317,5 +342,83 @@ test("two websocket clients seat opposite commanders on separate room matches", 
   } finally {
     child.kill("SIGTERM");
     await once(child, "exit");
+  }
+});
+
+test("newMap over a websocket replaces only that room's tiles", async () => {
+  const createdMatches = [];
+  const router = createLobbyRouter({
+    createMatch() {
+      const match = new Match();
+      spawnSquad(match, 3);
+      createdMatches.push(match);
+      return match;
+    },
+    onStarted(match) {
+      match.activateCommanderRoom();
+    },
+    onNewMap(match) {
+      spawnSquad(match, 3);
+      match.activateCommanderRoom();
+    },
+    visionRadius: CONFIG.visionRadius,
+    visionBlockers: CONFIG.visionBlockers,
+  });
+  const wss = new WebSocketServer({ port: 0 });
+  if (!wss.address()) await once(wss, "listening");
+  const sockets = new Map();
+  wss.on("connection", (ws) => {
+    const connectionId = router.open();
+    sockets.set(ws, connectionId);
+    ws.on("message", (data) => {
+      router.handle(connectionId, ws, JSON.parse(String(data)));
+    });
+    ws.on("close", () => {
+      router.close(connectionId);
+      sockets.delete(ws);
+    });
+  });
+  const port = wss.address().port;
+  const clients = [];
+  try {
+    const red = connect(port);
+    const bot = connect(port);
+    const other = connect(port);
+    clients.push(red, bot, other);
+    await Promise.all([once(red.ws, "open"), once(bot.ws, "open"), once(other.ws, "open")]);
+    red.ws.send(JSON.stringify({ type: "room_create" }));
+    const created = await waitFor(red.incoming, (message) => message.type === "room_welcome");
+    const active = createdMatches[0];
+    assert.equal(created.map.seed, active.map.seed);
+    bot.ws.send(JSON.stringify({ type: "room_join", roomId: created.roomId }));
+    const joined = await waitFor(bot.incoming, (message) => message.type === "room_welcome" && message.started);
+    assert.deepEqual(joined.map.tiles, active.getMapData().tiles);
+    other.ws.send(JSON.stringify({ type: "room_create" }));
+    const otherWelcome = await waitFor(other.incoming, (message) => message.type === "room_welcome");
+    assert.notDeepEqual(otherWelcome.map.tiles, joined.map.tiles);
+
+    const scored = [];
+    for (let i = 0; i < 3; i += 1) {
+      const view = active.lifecycle.capture("red", active.nowMs);
+      active.absorbLifecycle(view, scored);
+    }
+    assert.equal(active.phase, "results");
+    active.nowMs = active.resultsEndsAtMs;
+    router.tick(0);
+    const reset = await waitFor(red.incoming, (message) => message.type === "newMap");
+    const also = await waitFor(bot.incoming, (message) => message.type === "newMap");
+    assert.equal(reset.roundId, 2);
+    assert.notEqual(reset.map.seed, joined.map.seed);
+    assert.deepEqual(reset.map, active.getMapData());
+    assert.deepEqual(also.map, reset.map);
+    assert.equal(JSON.stringify(reset).includes("resumeToken"), false);
+    assert.equal(reset.map.fog, undefined);
+    assert.equal(other.incoming.some((message) => message.type === "newMap"), false);
+    red.ws.close();
+    bot.ws.close();
+    other.ws.close();
+  } finally {
+    for (const client of clients) client.ws.close();
+    await new Promise((resolve) => wss.close(resolve));
   }
 });

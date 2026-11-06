@@ -141,18 +141,21 @@ const squadSize = Number.isFinite(botsPerTeam) ? botsPerTeam : 3;
 spawnSquad(match, squadSize);
 const clients = new Map(); // playerId -> ws
 
-function armRoomMatch(next) {
+function prepareRoomMatch() {
+  const next = new Match();
   spawnSquad(next, squadSize);
-  // Squad must exist first. This does not insert a human body.
-  next.activateCommanderRoom();
   return next;
 }
 
 const roomRouter = createLobbyRouter({
-  createMatch() {
-    return armRoomMatch(new Match());
+  createMatch: prepareRoomMatch,
+  onStarted(next) {
+    next.activateCommanderRoom();
   },
-  onNewMap: armRoomMatch,
+  onNewMap(next) {
+    spawnSquad(next, squadSize);
+    next.activateCommanderRoom();
+  },
   visionRadius: CONFIG.visionRadius,
   visionBlockers: CONFIG.visionBlockers,
 });
